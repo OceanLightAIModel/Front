@@ -5,7 +5,6 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  KeyboardAvoidingView,
   Platform,
   SafeAreaView,
   StatusBar,
@@ -22,6 +21,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { launchImageLibrary, launchCamera, ImagePickerResponse, MediaType } from 'react-native-image-picker';
 import { KeyboardAwareFlatList } from 'react-native-keyboard-aware-scroll-view';
+import { KeyboardAvoidingView } from 'react-native';
 
 type Message = {
   id: string;
@@ -66,6 +66,9 @@ const PALETTE = {
   },
 };
 
+// 입력 바의 최소 높이(아이콘/여백 포함). 리스트 paddingBottom 계산에 사용.
+const INPUT_BAR_MIN_HEIGHT = 64;
+
 const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
   const insets = useSafeAreaInsets();
   const theme = useMemo(() => (darkMode ? PALETTE.dark : PALETTE.light), [darkMode]);
@@ -87,22 +90,12 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
   const cursorAnimation = useRef(new Animated.Value(1)).current;
 
   const quickActions = [
-    {
-      icon: 'camera-alt',
-      title: '동물 사진 분석',
-      description: '반려동물 사진을 업로드하여 건강 상태를 분석해보세요',
-    },
-    {
-      icon: 'pets',
-      title: '펫 헬스케어',
-      description: '사료, 증상, 생활습관 등 무엇이든 물어보세요',
-    },
+    { icon: 'camera-alt', title: '동물 사진 분석', description: '반려동물 사진을 업로드하여 건강 상태를 분석해보세요' },
+    { icon: 'pets', title: '펫 헬스케어', description: '사료, 증상, 생활습관 등 무엇이든 물어보세요' },
   ];
 
   useEffect(() => {
-    if (messages.length > 0) {
-      setTimeout(() => flatListRef.current?.scrollToEnd(), 80);
-    }
+    if (messages.length > 0) setTimeout(() => flatListRef.current?.scrollToEnd(), 80);
   }, [messages]);
 
   useEffect(() => {
@@ -111,7 +104,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
         toggleSidebar();
         return true;
       }
-      navigation?.goBack && navigation.goBack(); // 기존 뒤로가기 유지
+      navigation?.goBack && navigation.goBack();
       return true;
     };
     const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
@@ -121,11 +114,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
   useEffect(() => {
     if (isDiagnosing) {
       const loop = Animated.loop(
-        Animated.timing(spinnerAnimation, {
-          toValue: 1,
-          duration: 1000,
-          useNativeDriver: true,
-        })
+        Animated.timing(spinnerAnimation, { toValue: 1, duration: 1000, useNativeDriver: true })
       );
       loop.start();
       return () => {
@@ -168,34 +157,19 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
     toggleSidebar();
   };
 
-  // 시간 포맷
   const two = (n: number) => n.toString().padStart(2, '0');
   const formatChatStartTime = (d: Date) =>
     `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 ${two(d.getHours())}:${two(d.getMinutes())}`;
   const formatMessageTime = (d: Date) => `${two(d.getHours())}:${two(d.getMinutes())}`;
   const isSameDay = (a: Date, b: Date) =>
     a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-
   const shouldShowDateSeparator = (current: Message, prev: Message | null) => !!prev && !isSameDay(current.timestamp, prev.timestamp);
 
-  // 타이핑 효과
-  const typeWriter = (text: string, onDone: () => void) => {
-    setTypingText('');
-    setIsTyping(true);
-    setIsDiagnosing(false);
-    let i = 0;
-    const timer = setInterval(() => {
-      if (i < text.length) {
-        setTypingText(text.slice(0, i + 1));
-        i++;
-      } else {
-        clearInterval(timer);
-        setIsTyping(false);
-        onDone();
-      }
-    }, 18);
+  const ensureStartTime = () => {
+    if (!chatStartTime) setChatStartTime(new Date());
   };
 
+  // ===== 이미지/메시지 전송 =====
   const requestCameraPermission = async () => {
     if (Platform.OS !== 'android') return true;
     try {
@@ -240,8 +214,21 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
     });
   };
 
-  const ensureStartTime = () => {
-    if (!chatStartTime) setChatStartTime(new Date());
+  const typeWriter = (text: string, onDone: () => void) => {
+    setTypingText('');
+    setIsTyping(true);
+    setIsDiagnosing(false);
+    let i = 0;
+    const timer = setInterval(() => {
+      if (i < text.length) {
+        setTypingText(text.slice(0, i + 1));
+        i++;
+      } else {
+        clearInterval(timer);
+        setIsTyping(false);
+        onDone();
+      }
+    }, 18);
   };
 
   const sendImageMessage = (imageUri: string) => {
@@ -324,6 +311,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
     );
   };
 
+  // ===== 렌더 =====
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
     const prev = index > 0 ? messages[index - 1] : null;
     const needDateChip = shouldShowDateSeparator(item, prev);
@@ -331,7 +319,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
     return (
       <View>
         {needDateChip && (
-          <View style={[styles.dateSeparatorContainer]}>
+          <View style={styles.dateSeparatorContainer}>
             <Text style={[styles.dateSeparatorText, { backgroundColor: theme.chipBg, color: theme.chipText }]}>
               {`${item.timestamp.getFullYear()}년 ${item.timestamp.getMonth() + 1}월 ${item.timestamp.getDate()}일`}
             </Text>
@@ -343,11 +331,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
             <View
               style={[
                 styles.messageBubble,
-                {
-                  backgroundColor: theme.primary,
-                  borderBottomRightRadius: 6,
-                  borderColor: 'transparent',
-                },
+                { backgroundColor: theme.primary, borderBottomRightRadius: 6, borderColor: 'transparent' },
               ]}
             >
               {item.image ? (
@@ -378,11 +362,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
               <View
                 style={[
                   styles.messageBubble,
-                  {
-                    backgroundColor: theme.bubbleBot,
-                    borderColor: theme.border,
-                    borderBottomLeftRadius: 6,
-                  },
+                  { backgroundColor: theme.bubbleBot, borderColor: theme.border, borderBottomLeftRadius: 6 },
                 ]}
               >
                 <Text style={[styles.messageText, { color: theme.text }]}>{item.text}</Text>
@@ -397,55 +377,51 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
     );
   };
 
-  const renderTypingIndicator = () => {
-    const spin = spinnerAnimation.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
-    return (
-      <View style={styles.botMessageContainer}>
-        <Image
-          source={chatTheme ? require('../logo/cat.png') : require('../logo/dog.png')}
-          style={styles.botAvatar}
-          resizeMode="contain"
-        />
-        <View
-          style={[
-            styles.messageBubble,
-            { backgroundColor: theme.bubbleBot, borderColor: theme.border, borderBottomLeftRadius: 6 },
-          ]}
-        >
-          {isDiagnosing ? (
-            <View style={styles.diagnosingContainer}>
-              <Animated.View style={[styles.loadingSpinner, { borderColor: theme.spinner, transform: [{ rotate: spin }] }]} />
-              <Text style={[styles.diagnosingText, { color: theme.subtext }]}>진단중...</Text>
-            </View>
-          ) : (
-            <View style={styles.typingContainer}>
-              <Text style={[styles.messageText, { color: theme.text }]}>{typingText}</Text>
-              <Animated.View style={[styles.typingCursor, { backgroundColor: theme.cursor, opacity: cursorAnimation }]} />
-            </View>
-          )}
-        </View>
+  const spin = spinnerAnimation.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+  const renderTypingIndicator = () => (
+    <View style={styles.botMessageContainer}>
+      <Image
+        source={chatTheme ? require('../logo/cat.png') : require('../logo/dog.png')}
+        style={styles.botAvatar}
+        resizeMode="contain"
+      />
+      <View
+        style={[
+          styles.messageBubble,
+          { backgroundColor: theme.bubbleBot, borderColor: theme.border, borderBottomLeftRadius: 6 },
+        ]}
+      >
+        {isDiagnosing ? (
+          <View style={styles.diagnosingContainer}>
+            <Animated.View style={[styles.loadingSpinner, { borderColor: theme.spinner, transform: [{ rotate: spin }] }]} />
+            <Text style={[styles.diagnosingText, { color: theme.subtext }]}>진단중...</Text>
+          </View>
+        ) : (
+          <View style={styles.typingContainer}>
+            <Text style={[styles.messageText, { color: theme.text }]}>{typingText}</Text>
+            <Animated.View style={[styles.typingCursor, { backgroundColor: theme.cursor, opacity: cursorAnimation }]} />
+          </View>
+        )}
       </View>
-    );
-  };
+    </View>
+  );
 
+  // 사이드바/모달은 기존 그대로
   const renderSidebar = () => (
     <Modal visible={sidebarVisible} transparent animationType="none" onRequestClose={toggleSidebar}>
       <View style={styles.sidebarOverlay}>
         <TouchableOpacity style={styles.sidebarBackdrop} onPress={toggleSidebar} activeOpacity={1} />
         <Animated.View
-          style={[
-            styles.sidebar,
-            { left: sidebarAnimation, backgroundColor: theme.surface, borderRightColor: theme.border },
-          ]}
+          style={[styles.sidebar, { left: sidebarAnimation, backgroundColor: theme.surface, borderRightColor: theme.border }]}
         >
           <View style={styles.sidebarContent}>
-            <View
-              style={[
-                styles.sidebarTopHeader,
-                { backgroundColor: theme.headerBg, borderBottomColor: theme.border },
-              ]}
-            >
-              <View style={[styles.searchInputContainer, { backgroundColor: darkMode ? '#3A3F44' : '#F3F5F7', borderColor: theme.border }]}>
+            <View style={[styles.sidebarTopHeader, { backgroundColor: theme.headerBg, borderBottomColor: theme.border }]}>
+              <View
+                style={[
+                  styles.searchInputContainer,
+                  { backgroundColor: darkMode ? '#3A3F44' : '#F3F5F7', borderColor: theme.border },
+                ]}
+              >
                 <MaterialIcons name="search" size={16} color={theme.subtext} style={styles.searchIcon} />
                 <TextInput
                   style={[styles.searchInput, { color: theme.text }]}
@@ -504,7 +480,10 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
         <View style={[styles.imagePickerModal, { backgroundColor: theme.surface, borderColor: theme.border }]}>
           <View style={styles.modalHeader}>
             <Text style={[styles.modalTitle, { color: theme.text }]}>사진 선택</Text>
-            <TouchableOpacity onPress={() => setImagePickerVisible(false)} style={[styles.modalCloseButton, { backgroundColor: darkMode ? '#2F3438' : '#F3F5F7' }]}>
+            <TouchableOpacity
+              onPress={() => setImagePickerVisible(false)}
+              style={[styles.modalCloseButton, { backgroundColor: darkMode ? '#2F3438' : '#F3F5F7' }]}
+            >
               <MaterialIcons name="close" size={24} color={theme.subtext} />
             </TouchableOpacity>
           </View>
@@ -512,7 +491,13 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
           <Text style={[styles.modalSubtitle, { color: theme.subtext }]}>사진을 어떻게 추가하시겠습니까?</Text>
 
           <View style={styles.imagePickerOptions}>
-            <TouchableOpacity style={[styles.imagePickerOption, { backgroundColor: darkMode ? '#1F2426' : '#F6F8FA', borderColor: theme.border }]} onPress={pickImageFromGallery}>
+            <TouchableOpacity
+              style={[
+                styles.imagePickerOption,
+                { backgroundColor: darkMode ? '#1F2426' : '#F6F8FA', borderColor: theme.border },
+              ]}
+              onPress={pickImageFromGallery}
+            >
               <View style={[styles.optionIconContainer, { backgroundColor: darkMode ? '#163D34' : '#E3F2ED' }]}>
                 <MaterialIcons name="photo-library" size={32} color={theme.primary} />
               </View>
@@ -522,7 +507,13 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
               </View>
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.imagePickerOption, { backgroundColor: darkMode ? '#1F2426' : '#F6F8FA', borderColor: theme.border }]} onPress={pickImageFromCamera}>
+            <TouchableOpacity
+              style={[
+                styles.imagePickerOption,
+                { backgroundColor: darkMode ? '#1F2426' : '#F6F8FA', borderColor: theme.border },
+              ]}
+              onPress={pickImageFromCamera}
+            >
               <View style={[styles.optionIconContainer, { backgroundColor: darkMode ? '#163D34' : '#E3F2ED' }]}>
                 <MaterialIcons name="camera-alt" size={32} color={theme.primary} />
               </View>
@@ -533,7 +524,10 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity style={[styles.modalCancelButton, { backgroundColor: darkMode ? '#2B2F33' : '#F3F5F7', borderColor: theme.border }]} onPress={() => setImagePickerVisible(false)}>
+          <TouchableOpacity
+            style={[styles.modalCancelButton, { backgroundColor: darkMode ? '#2B2F33' : '#F3F5F7', borderColor: theme.border }]}
+            onPress={() => setImagePickerVisible(false)}
+          >
             <Text style={[styles.modalCancelText, { color: theme.subtext }]}>취소</Text>
           </TouchableOpacity>
         </View>
@@ -617,83 +611,86 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
         </View>
       </View>
 
-      {/* 콘텐츠 */}
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={0} enabled>
-        <View style={{ flex: 1 }}>
-          {messages.length === 0 ? (
-            <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.welcomeContent} showsVerticalScrollIndicator={false}>
-              <View style={styles.logoSection}>
-                <View
-                  style={[
-                    styles.logoContainer,
-                    { backgroundColor: darkMode ? '#1F2426' : '#F6F8FA', borderColor: theme.border },
-                  ]}
+      {/* 콘텐츠 (리스트는 고정, 입력 바만 떠오름) */}
+      <View style={{ flex: 1 }}>
+        {messages.length === 0 ? (
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.welcomeContent} showsVerticalScrollIndicator={false}>
+            <View style={styles.logoSection}>
+              <View
+                style={[
+                  styles.logoContainer,
+                  { backgroundColor: darkMode ? '#1F2426' : '#F6F8FA', borderColor: theme.border },
+                ]}
+              >
+                <Image source={chatTheme ? require('../logo/cat.png') : require('../logo/dog.png')} style={styles.logoImage} resizeMode="contain" />
+              </View>
+              <Text style={[styles.welcomeTitle, { color: theme.text }]}>무엇을 도와드릴까요?</Text>
+            </View>
+
+            <View style={styles.quickActionsContainer}>
+              {quickActions.map((action, i) => (
+                <TouchableOpacity
+                  key={i}
+                  style={[styles.quickActionCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  onPress={() => {
+                    if (action.title === '동물 사진 분석') showImagePicker();
+                    else if (action.title === '펫 헬스케어') setInput('펫 헬스케어에 대해 알려주세요');
+                    else handleSend(action.title);
+                  }}
                 >
-                  <Image source={chatTheme ? require('../logo/cat.png') : require('../logo/dog.png')} style={styles.logoImage} resizeMode="contain" />
-                </View>
-                <Text style={[styles.welcomeTitle, { color: theme.text }]}>무엇을 도와드릴까요?</Text>
-              </View>
-
-              <View style={styles.quickActionsContainer}>
-                {quickActions.map((action, i) => (
-                  <TouchableOpacity
-                    key={i}
-                    style={[
-                      styles.quickActionCard,
-                      { backgroundColor: theme.surface, borderColor: theme.border },
-                    ]}
-                    onPress={() => {
-                      if (action.title === '동물 사진 분석') showImagePicker();
-                      else if (action.title === '펫 헬스케어') setInput('펫 헬스케어에 대해 알려주세요');
-                      else handleSend(action.title);
-                    }}
-                  >
-                    <View style={styles.quickActionHeader}>
-                      <MaterialIcons name={action.icon} size={24} color={theme.primary} style={{ marginRight: 12 }} />
-                      <Text style={[styles.quickActionTitle, { color: theme.text }]}>{action.title}</Text>
-                    </View>
-                    <Text style={[styles.quickActionDescription, { color: theme.subtext }]}>{action.description}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </ScrollView>
-          ) : (
-            <KeyboardAwareFlatList
-              ref={flatListRef}
-              data={messages}
-              renderItem={({ item, index }) => renderMessage({ item, index })}
-              keyExtractor={(item) => item.id}
-              contentContainerStyle={styles.messageList}
-              ListHeaderComponent={
-                chatStartTime ? (
-                  <View style={styles.chatStartTimeContainer}>
-                    <Text style={[styles.chatStartTimeText, { backgroundColor: theme.chipBg, color: theme.chipText }]}>
-                      {formatChatStartTime(chatStartTime)}
-                    </Text>
+                  <View style={styles.quickActionHeader}>
+                    <MaterialIcons name={action.icon} size={24} color={theme.primary} style={{ marginRight: 12 }} />
+                    <Text style={[styles.quickActionTitle, { color: theme.text }]}>{action.title}</Text>
                   </View>
-                ) : null
-              }
-              ListFooterComponent={isDiagnosing || isTyping ? renderTypingIndicator : null}
-              keyboardShouldPersistTaps="handled"
-              extraScrollHeight={Platform.OS === 'ios' ? 80 : 100}
-              enableOnAndroid
-              enableAutomaticScroll
-              showsVerticalScrollIndicator={false}
-              keyboardDismissMode="interactive"
-              onContentSizeChange={() => flatListRef.current?.scrollToEnd()}
-              onLayout={() => flatListRef.current?.scrollToEnd()}
-            />
-          )}
-        </View>
+                  <Text style={[styles.quickActionDescription, { color: theme.subtext }]}>{action.description}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+        ) : (
+          <KeyboardAwareFlatList
+            ref={flatListRef}
+            data={messages}
+            renderItem={({ item, index }) => renderMessage({ item, index })}
+            keyExtractor={(item) => item.id}
+            // 입력 바에 가리지 않도록 하단 패딩(입력 바 높이 + 안전영역)
+            contentContainerStyle={{ padding: 15, paddingBottom: INPUT_BAR_MIN_HEIGHT + insets.bottom + 8 }}
+            ListHeaderComponent={
+              chatStartTime ? (
+                <View style={styles.chatStartTimeContainer}>
+                  <Text style={[styles.chatStartTimeText, { backgroundColor: theme.chipBg, color: theme.chipText }]}>
+                    {formatChatStartTime(chatStartTime)}
+                  </Text>
+                </View>
+              ) : null
+            }
+            ListFooterComponent={isDiagnosing || isTyping ? renderTypingIndicator : null}
+            keyboardShouldPersistTaps="handled"
+            enableOnAndroid
+            enableAutomaticScroll
+            showsVerticalScrollIndicator={false}
+            keyboardDismissMode="interactive"
+            onContentSizeChange={() => flatListRef.current?.scrollToEnd()}
+            onLayout={() => flatListRef.current?.scrollToEnd()}
+          />
+        )}
+      </View>
 
-        {/* 입력창 */}
+      {/* === 하단 입력 바만 KeyboardAvoidingView로 처리 & 절대 위치 === */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        // iOS의 홈 인디케이터 스와이프 제스처와 겹치지 않도록 absolute + 안전 영역 내부 패딩
+        style={styles.kavWrap}
+        keyboardVerticalOffset={0}
+      >
         <View
           style={[
             styles.inputContainer,
             {
               backgroundColor: theme.surface,
               borderTopColor: theme.border,
-              paddingBottom: insets.bottom > 0 ? insets.bottom : 0,
+              paddingBottom: (insets.bottom || 0), // 시각적 여백 없이 안전 영역만 내부 패딩
+              minHeight: INPUT_BAR_MIN_HEIGHT,
             },
           ]}
         >
@@ -751,6 +748,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -791,18 +789,11 @@ const styles = StyleSheet.create({
   quickActionDescription: { fontSize: 13, lineHeight: 19 },
 
   // 메시지 리스트
-  messageList: { padding: 15, paddingBottom: 0 },
   userMessageContainer: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'flex-end', marginVertical: 4, paddingHorizontal: 10 },
   botMessageContainer: { flexDirection: 'row', justifyContent: 'flex-start', alignItems: 'flex-start', marginVertical: 4, paddingHorizontal: 0 },
   botAvatar: { width: 40, height: 40, borderRadius: 20, marginRight: 6, marginTop: 2 },
   userAvatar: { width: 35, height: 35, borderRadius: 17.5, marginLeft: 6, marginTop: 2 },
-  messageBubble: {
-    paddingVertical: 10,
-    paddingHorizontal: 13,
-    borderRadius: 18,
-    maxWidth: '78%',
-    borderWidth: 1,
-  },
+  messageBubble: { paddingVertical: 10, paddingHorizontal: 13, borderRadius: 18, maxWidth: '78%', borderWidth: 1 },
   messageText: { fontSize: 15, lineHeight: 22 },
   messageImage: { width: 210, height: 210, borderRadius: 12, marginBottom: 6 },
 
@@ -821,14 +812,39 @@ const styles = StyleSheet.create({
   typingContainer: { flexDirection: 'row', alignItems: 'flex-end', flexWrap: 'wrap' },
   typingCursor: { width: 2, height: 18, marginLeft: 3, opacity: 1 },
 
+  // === 하단 입력 바 전용 KAV 래퍼(절대 위치) ===
+  kavWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0, // 홈 인디케이터/스와이프 영역에 딱 붙게
+  },
+
   // 입력 영역
-  inputContainer: { borderTopWidth: 1, paddingHorizontal: 15, paddingVertical: 8 },
-  inputWrapper: { flexDirection: 'row', alignItems: 'center', borderRadius: 22, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1 },
+  inputContainer: {
+    borderTopWidth: 1,
+    paddingHorizontal: 15,
+    paddingTop: 8,
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 22,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+  },
   attachButton: { width: 36, height: 36, justifyContent: 'center', alignItems: 'center', marginRight: 6 },
-  input: { flex: 1, fontSize: 16, maxHeight: 120, paddingVertical: Platform.OS === 'android' ? 10 : 8, textAlignVertical: 'top' },
+  input: {
+    flex: 1,
+    fontSize: 16,
+    maxHeight: 120,
+    paddingVertical: Platform.OS === 'android' ? 10 : 8,
+    textAlignVertical: 'top',
+  },
   sendButton: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center', marginLeft: 8 },
 
-  // 사이드바
+  // 사이드바/모달(기존)
   sidebarOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', flexDirection: 'row' },
   sidebarBackdrop: { flex: 1 },
   sidebar: { width: 280, height: '100%', position: 'absolute', left: -300, top: 0, borderRightWidth: 1 },
@@ -875,8 +891,6 @@ const styles = StyleSheet.create({
   optionContent: { flex: 1 },
   optionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 2 },
   optionDescription: { fontSize: 13 },
-  modalCancelButton: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8, borderWidth: 1, alignItems: 'center' },
-  modalCancelText: { fontSize: 16, fontWeight: '600' },
 
   // 로그아웃 모달
   logoutConfirmModal: {
@@ -897,6 +911,19 @@ const styles = StyleSheet.create({
   logoutCancelText: { fontSize: 16, fontWeight: '700' },
   logoutConfirmButton: { flex: 1, padding: 14, borderRadius: 8, marginLeft: 8, alignItems: 'center' },
   logoutConfirmText: { fontSize: 16, color: '#fff', fontWeight: '800' },
+  modalCancelButton: { 
+  paddingVertical: 12, 
+  paddingHorizontal: 24, 
+  borderRadius: 8, 
+  borderWidth: 1, 
+  alignItems: 'center' 
+},
+modalCancelText: { 
+  fontSize: 16, 
+  fontWeight: '600', 
+  textAlign: 'center' 
+},
+
 });
 
 export default ChatBotScreen;
