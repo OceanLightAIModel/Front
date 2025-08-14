@@ -104,16 +104,16 @@ const FindAccountScreen: React.FC<FindAccountScreenProps> = ({
       return;
     }
 
-    if (verificationCode === '1234') {
+    if (verificationCode === '123456') {
       setIsVerified(true);
       setTimeLeft(0);
       setCurrentStep('result');
       
       // 전화번호에 따라 결과 설정
-      if (findAccountPhone === '123-1234-123') {
+      if (findAccountPhone === '010-1234-1234') {
         setFoundAccount(true);
         setAccountNotFound(false);
-        setFoundEmail('1234@1234');
+        setFoundEmail('1234@1234.com');
       } else {
         setFoundAccount(false);
         setAccountNotFound(true);
@@ -125,10 +125,10 @@ const FindAccountScreen: React.FC<FindAccountScreenProps> = ({
 
   const handleFindAccount = () => {
     if (findAccountPhone) {
-      if (findAccountPhone === '123-1234-123') {
+      if (findAccountPhone === '010-1234-1234') {
         setFoundAccount(true);
         setAccountNotFound(false);
-        setFoundEmail('1234@1234');
+        setFoundEmail('1234@1234.com');
         setCurrentStep('result');
       } else {
         setFoundAccount(false);
@@ -171,7 +171,7 @@ const FindAccountScreen: React.FC<FindAccountScreenProps> = ({
       <Text style={styles.loginTitle}>계정 찾기</Text>
       
       <View style={styles.tempInfoContainer}>
-        <Text style={styles.tempInfoText}>임시 전화번호: 123-1234-123</Text>
+        <Text style={styles.tempInfoText}>임시 전화번호: 010-1234-1234</Text>
       </View>
       
       <View style={styles.phoneInputWrapper}>
@@ -237,7 +237,7 @@ const FindAccountScreen: React.FC<FindAccountScreenProps> = ({
       </Text>
 
       <View style={styles.tempInfoContainer}>
-        <Text style={styles.tempInfoText}>임시 인증번호: 1234</Text>
+        <Text style={styles.tempInfoText}>임시 인증번호: 123456</Text>
       </View>
 
       <View style={styles.phoneInputWrapper}>
@@ -255,14 +255,14 @@ const FindAccountScreen: React.FC<FindAccountScreenProps> = ({
         <TouchableOpacity 
           style={[
             styles.verifyButton,
-            verificationCode.length >= 4 ? styles.verifyButtonActive : styles.verifyButtonInactive
+            verificationCode.length >= 6 ? styles.verifyButtonActive : styles.verifyButtonInactive
           ]}
           onPress={handleVerifyCode}
-          disabled={verificationCode.length < 4 || isVerified || timeLeft === 0}
+          disabled={verificationCode.length < 6 || isVerified || timeLeft === 0}
         >
           <Text style={[
             styles.verifyButtonText,
-            verificationCode.length >= 4 ? styles.verifyButtonTextActive : styles.verifyButtonTextInactive
+            verificationCode.length >= 6 ? styles.verifyButtonTextActive : styles.verifyButtonTextInactive
           ]}>
             {isVerified ? '인증완료' : '인증하기'}
           </Text>
@@ -315,10 +315,6 @@ const FindAccountScreen: React.FC<FindAccountScreenProps> = ({
       <View style={styles.resultButtonContainer}>
         <TouchableOpacity style={styles.signupButton} onPress={onBackToLogin}>
           <Text style={styles.signupButtonText}>로그인하기</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.secondaryButton} onPress={resetToStart}>
-          <Text style={styles.secondaryButtonText}>다시 찾기</Text>
         </TouchableOpacity>
         
         <TouchableOpacity style={styles.secondaryButton} onPress={onNavigateToResetPassword}>
@@ -511,7 +507,7 @@ const styles = StyleSheet.create({
     minWidth: 80,
   },
   verifyButtonActive: {
-    backgroundColor: '#28a745',
+    backgroundColor: '#0080ff',
   },
   verifyButtonInactive: {
     backgroundColor: '#e9ecef',

@@ -11,6 +11,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   BackHandler,
+  Alert,
 } from 'react-native';
 
 interface SignupScreenProps {
@@ -71,25 +72,72 @@ const SignupScreen: React.FC<SignupScreenProps> = ({
     return () => backHandler.remove();
   }, [onBackToLogin]);
 
+  // 비밀번호 규칙 검사 + 조건별 Alert
+  const handleSignupPress = () => {
+    const pwd = signupPassword ?? '';
+    const confirm = signupPasswordConfirm ?? '';
+
+    const hasUpper = /[A-Z]/.test(pwd);
+    const hasNumber = /\d/.test(pwd);
+    const hasSpecial = /[^A-Za-z0-9]/.test(pwd);
+    const longEnough = pwd.length >= 8;
+
+    if (!longEnough) {
+      Alert.alert('비밀번호 규칙', '비밀번호는 8자리 이상이어야 합니다.');
+      return;
+    }
+    if (!hasUpper) {
+      Alert.alert('비밀번호 규칙', '영어 대문자를 최소 1자 포함해야 합니다.');
+      return;
+    }
+    if (!hasNumber) {
+      Alert.alert('비밀번호 규칙', '숫자를 최소 1자 포함해야 합니다.');
+      return;
+    }
+    if (!hasSpecial) {
+      Alert.alert('비밀번호 규칙', '특수문자를 최소 1자 포함해야 합니다.');
+      return;
+    }
+    if (pwd !== confirm) {
+      Alert.alert('비밀번호 확인', '비밀번호가 일치하지 않습니다.');
+      return;
+    }
+
+    onSignup();
+  };
+
+  // 숫자만 추출해서 11자리인지 체크 (형식 문자 '-' 포함 입력에도 대응)
+  const digitsOnly = signupPhone.replace(/\D/g, '');
+  const isPhoneValid = digitsOnly.length === 11;
+
+  const handleRequestCode = () => {
+    if (!isPhoneValid || timerActive) return;
+
+    setIsCodeSent(true);
+    setVerificationTimer(180); // 3분
+    setTimerActive(true);
+    // 실제 앱에서는 여기서 SMS 인증코드를 전송
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0080ff" />
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         style={styles.keyboardContainer}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <ScrollView 
+        <ScrollView
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.signupInnerContainer}>
-            {/* 회원가입 폼 - 애니메이션 제거하여 안정적 렌더링 */}
+            {/* 회원가입 폼 */}
             <View style={styles.signupFormBox}>
               <View style={styles.loginBox}>
                 {/* X 버튼 */}
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.closeButton}
                   onPress={onBackToLogin}
                 >
@@ -97,7 +145,7 @@ const SignupScreen: React.FC<SignupScreenProps> = ({
                 </TouchableOpacity>
 
                 <Text style={styles.loginTitle}>회원가입</Text>
-                
+
                 <TextInput
                   style={styles.input}
                   placeholder="이름"
@@ -131,6 +179,10 @@ const SignupScreen: React.FC<SignupScreenProps> = ({
                   blurOnSubmit={false}
                   returnKeyType="next"
                 />
+                {/* 작은 힌트 */}
+                <Text style={styles.passwordHint}>
+                  (대문자/숫자/특수문자 포함 8자 이상)
+                </Text>
 
                 <TextInput
                   style={styles.input}
@@ -151,26 +203,28 @@ const SignupScreen: React.FC<SignupScreenProps> = ({
                     value={signupPhone}
                     onChangeText={(text) => setSignupPhone(formatPhoneNumber(text))}
                     keyboardType="number-pad"
-                    maxLength={13}
+                    maxLength={13} // 010-1234-5678 형태
                     blurOnSubmit={false}
                     returnKeyType="next"
                   />
-                  
-                  <TouchableOpacity 
-                    style={[styles.verifyButton, (isCodeSent || timerActive) && styles.verifyButtonDisabled]}
-                    onPress={() => {
-                      if (signupPhone.length > 0 && !timerActive) {
-                        setIsCodeSent(true);
-                        setVerificationTimer(180); // 3분 = 180초
-                        setTimerActive(true);
-                        // 실제 앱에서는 여기서 SMS 인증코드를 전송합니다
-                      }
-                    }}
-                    disabled={isCodeSent || timerActive}
+
+                  <TouchableOpacity
+                    style={[
+                      styles.verifyButton,
+                      (!isPhoneValid || timerActive) && styles.verifyButtonDisabled,
+                    ]}
+                    onPress={handleRequestCode}
+                    disabled={!isPhoneValid || timerActive}
+                    accessibilityState={{ disabled: !isPhoneValid || timerActive }}
                   >
                     <Text style={styles.verifyButtonText}>
-                      {timerActive ? `${Math.floor(verificationTimer / 60)}:${(verificationTimer % 60).toString().padStart(2, '0')}` : 
-                       isCodeSent ? '재전송' : '인증요청'}
+                      {timerActive
+                        ? `${Math.floor(verificationTimer / 60)}:${(verificationTimer % 60)
+                            .toString()
+                            .padStart(2, '0')}`
+                        : isCodeSent
+                        ? '재전송'
+                        : '인증요청'}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -185,7 +239,7 @@ const SignupScreen: React.FC<SignupScreenProps> = ({
                     </Text>
                   </View>
                 )}
-                
+
                 <TextInput
                   style={[styles.input, !isCodeSent && styles.hiddenInput]}
                   placeholder="인증번호 입력"
@@ -206,7 +260,8 @@ const SignupScreen: React.FC<SignupScreenProps> = ({
                   </TouchableOpacity>
                 </View>
 
-                <TouchableOpacity style={styles.signupButton} onPress={onSignup}>
+                {/* 회원가입 버튼 */}
+                <TouchableOpacity style={styles.signupButton} onPress={handleSignupPress}>
                   <Text style={styles.signupButtonText}>회원가입</Text>
                 </TouchableOpacity>
               </View>
@@ -290,6 +345,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#333',
   },
+  passwordHint: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: -10,
+    marginBottom: 10,
+    paddingHorizontal: 5,
+  },
   phoneVerificationContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -297,7 +359,7 @@ const styles = StyleSheet.create({
   },
   phoneInput: {
     flex: 1,
-    height: 50, 
+    height: 50,
     marginTop: 13,
     marginRight: 10,
   },

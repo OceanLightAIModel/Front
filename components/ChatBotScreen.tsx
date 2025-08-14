@@ -1,3 +1,4 @@
+// ChatBotScreen.tsx
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View,
@@ -16,12 +17,12 @@ import {
   BackHandler,
   Alert,
   PermissionsAndroid,
+  Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { launchImageLibrary, launchCamera, ImagePickerResponse, MediaType } from 'react-native-image-picker';
 import { KeyboardAwareFlatList } from 'react-native-keyboard-aware-scroll-view';
-import { KeyboardAvoidingView } from 'react-native';
 
 type Message = {
   id: string;
@@ -38,14 +39,14 @@ const PALETTE = {
     border: '#E6EAEE',
     text: '#1F2937',
     subtext: '#6B7280',
-    primary: '#10A37F',
-    primaryPressed: '#0B8063',
+    primary: '#0080ff',
+    primaryPressed: '#0080ff',
     bubbleUserText: '#FFFFFF',
     bubbleBot: '#FFFFFF',
     chipBg: '#EFF6F3',
-    chipText: '#0B8063',
-    spinner: '#10A37F',
-    cursor: '#10A37F',
+    chipText: '#0080ff',
+    spinner: '#0080ff',
+    cursor: '#0080ff',
     headerBg: '#FFFFFF',
   },
   dark: {
@@ -54,19 +55,19 @@ const PALETTE = {
     border: '#2E3136',
     text: '#E5E7EB',
     subtext: '#9CA3AF',
-    primary: '#10A37F',
-    primaryPressed: '#0B8063',
+    primary: '#0080ff',
+    primaryPressed: '#0080ff',
     bubbleUserText: '#FFFFFF',
     bubbleBot: '#23262A',
     chipBg: '#1F2426',
     chipText: '#A7F3D0',
-    spinner: '#10A37F',
-    cursor: '#10A37F',
+    spinner: '#0080ff',
+    cursor: '#0080ff',
     headerBg: '#2B2F33',
   },
 };
 
-// 입력 바의 최소 높이(아이콘/여백 포함). 리스트 paddingBottom 계산에 사용.
+// 입력바 최소 높이
 const INPUT_BAR_MIN_HEIGHT = 64;
 
 const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
@@ -83,6 +84,11 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
   const [imagePickerVisible, setImagePickerVisible] = useState(false);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
   const [chatStartTime, setChatStartTime] = useState<Date | null>(null);
+  const [headerHeight, setHeaderHeight] = useState<number>(64);
+
+  // 키보드 높이(숫자) + 애니메이션 값
+  const [keyboardInset, setKeyboardInset] = useState(0);
+  const inputTranslateY = useRef(new Animated.Value(0)).current;
 
   const flatListRef = useRef<KeyboardAwareFlatList>(null);
   const sidebarAnimation = useRef(new Animated.Value(-300)).current;
@@ -93,6 +99,42 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
     { icon: 'camera-alt', title: '동물 사진 분석', description: '반려동물 사진을 업로드하여 건강 상태를 분석해보세요' },
     { icon: 'pets', title: '펫 헬스케어', description: '사료, 증상, 생활습관 등 무엇이든 물어보세요' },
   ];
+
+  // --- 키보드 이벤트: 보임/숨김에 따라 입력창을 올렸다가 원위치로 ---
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const onShow = (e: any) => {
+      const height = Math.max(0, e?.endCoordinates?.height ?? 0);
+      const insetToUse = Math.max(0, height - (insets.bottom || 0)); // 아이폰 홈인디케이터 중복 방지
+      setKeyboardInset(insetToUse);
+      Animated.timing(inputTranslateY, {
+        toValue: -insetToUse,
+        duration: Platform.OS === 'ios' ? e?.duration ?? 250 : 200,
+        useNativeDriver: true,
+      }).start(() => {
+        // 포커스 시 리스트 맨 아래로
+        setTimeout(() => flatListRef.current?.scrollToEnd(), Platform.OS === 'ios' ? 60 : 120);
+      });
+    };
+
+    const onHide = (e: any) => {
+      setKeyboardInset(0);
+      Animated.timing(inputTranslateY, {
+        toValue: 0,
+        duration: Platform.OS === 'ios' ? e?.duration ?? 200 : 180,
+        useNativeDriver: true,
+      }).start(); // ← 원래 자리로 정확히 복귀
+    };
+
+    const subShow = Keyboard.addListener(showEvt, onShow);
+    const subHide = Keyboard.addListener(hideEvt, onHide);
+    return () => {
+      subShow.remove();
+      subHide.remove();
+    };
+  }, [insets.bottom, inputTranslateY]);
 
   useEffect(() => {
     if (messages.length > 0) setTimeout(() => flatListRef.current?.scrollToEnd(), 80);
@@ -320,7 +362,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
       <View>
         {needDateChip && (
           <View style={styles.dateSeparatorContainer}>
-            <Text style={[styles.dateSeparatorText, { backgroundColor: theme.chipBg, color: theme.chipText }]}>
+            <Text style={styles.dateSeparatorText}>
               {`${item.timestamp.getFullYear()}년 ${item.timestamp.getMonth() + 1}월 ${item.timestamp.getDate()}일`}
             </Text>
           </View>
@@ -406,7 +448,6 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
     </View>
   );
 
-  // 사이드바/모달은 기존 그대로
   const renderSidebar = () => (
     <Modal visible={sidebarVisible} transparent animationType="none" onRequestClose={toggleSidebar}>
       <View style={styles.sidebarOverlay}>
@@ -586,6 +627,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
             borderBottomColor: theme.border,
           },
         ]}
+        onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
       >
         <View style={styles.headerLeft}>
           <TouchableOpacity style={styles.menuButton} onPress={toggleSidebar}>
@@ -611,7 +653,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
         </View>
       </View>
 
-      {/* 콘텐츠 (리스트는 고정, 입력 바만 떠오름) */}
+      {/* 본문 */}
       <View style={{ flex: 1 }}>
         {messages.length === 0 ? (
           <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.welcomeContent} showsVerticalScrollIndicator={false}>
@@ -653,8 +695,11 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
             data={messages}
             renderItem={({ item, index }) => renderMessage({ item, index })}
             keyExtractor={(item) => item.id}
-            // 입력 바에 가리지 않도록 하단 패딩(입력 바 높이 + 안전영역)
-            contentContainerStyle={{ padding: 15, paddingBottom: INPUT_BAR_MIN_HEIGHT + insets.bottom + 8 }}
+            // 입력바 높이 + 안전영역 + 키보드 높이만큼 패딩
+            contentContainerStyle={{
+              padding: 15,
+              paddingBottom: INPUT_BAR_MIN_HEIGHT + (insets.bottom || 0) + keyboardInset + 8,
+            }}
             ListHeaderComponent={
               chatStartTime ? (
                 <View style={styles.chatStartTimeContainer}>
@@ -668,6 +713,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
             keyboardShouldPersistTaps="handled"
             enableOnAndroid
             enableAutomaticScroll
+            extraScrollHeight={0}
             showsVerticalScrollIndicator={false}
             keyboardDismissMode="interactive"
             onContentSizeChange={() => flatListRef.current?.scrollToEnd()}
@@ -676,72 +722,62 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
         )}
       </View>
 
-      {/* === 하단 입력 바만 KeyboardAvoidingView로 처리 & 절대 위치 === */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        // iOS의 홈 인디케이터 스와이프 제스처와 겹치지 않도록 absolute + 안전 영역 내부 패딩
-        style={styles.kavWrap}
-        keyboardVerticalOffset={0}
+      {/* 입력창: 키보드 높이만큼 애니메이션으로 올림/내림 */}
+      <Animated.View
+        style={[
+          styles.inputContainer,
+          {
+            backgroundColor: theme.surface,
+            borderTopColor: theme.border,
+            paddingBottom: insets.bottom || 0,
+            minHeight: INPUT_BAR_MIN_HEIGHT,
+            transform: [{ translateY: inputTranslateY }],
+          },
+        ]}
       >
         <View
           style={[
-            styles.inputContainer,
+            styles.inputWrapper,
             {
-              backgroundColor: theme.surface,
-              borderTopColor: theme.border,
-              paddingBottom: (insets.bottom || 0), // 시각적 여백 없이 안전 영역만 내부 패딩
-              minHeight: INPUT_BAR_MIN_HEIGHT,
+              backgroundColor: darkMode ? '#1F2426' : '#F6F8FA',
+              borderColor: theme.border,
             },
           ]}
         >
-          <View
+          <TouchableOpacity style={styles.attachButton} onPress={showImagePicker}>
+            <MaterialIcons name="photo-camera" size={20} color={theme.subtext} />
+          </TouchableOpacity>
+          <TextInput
+            style={[styles.input, { color: theme.text }]}
+            placeholder="메시지를 입력하세요..."
+            placeholderTextColor={theme.subtext}
+            value={input}
+            onChangeText={setInput}
+            multiline
+            maxLength={500}
+            blurOnSubmit={false}
+            returnKeyType="send"
+            removeClippedSubviews={false}
+            onFocus={() => {
+              setTimeout(() => flatListRef.current?.scrollToEnd(), Platform.OS === 'ios' ? 80 : 200);
+            }}
+            onSubmitEditing={() => {
+              if (!input.trim()) return;
+              handleSend();
+            }}
+          />
+          <TouchableOpacity
+            onPress={() => handleSend()}
             style={[
-              styles.inputWrapper,
-              {
-                backgroundColor: darkMode ? '#1F2426' : '#F6F8FA',
-                borderColor: theme.border,
-              },
+              styles.sendButton,
+              { backgroundColor: input.trim() ? theme.primary : (darkMode ? '#2B2F33' : '#E6EAEE') },
             ]}
+            disabled={!input.trim()}
           >
-            <TouchableOpacity style={styles.attachButton} onPress={showImagePicker}>
-              <MaterialIcons name="photo-camera" size={20} color={theme.subtext} />
-            </TouchableOpacity>
-            <TextInput
-              style={[styles.input, { color: theme.text }]}
-              placeholder="메시지를 입력하세요..."
-              placeholderTextColor={theme.subtext}
-              value={input}
-              onChangeText={setInput}
-              multiline
-              maxLength={500}
-              blurOnSubmit={false}
-              returnKeyType="send"
-              removeClippedSubviews={false}
-              onFocus={() => {
-                if (Platform.OS === 'ios') setTimeout(() => flatListRef.current?.scrollToEnd(), 80);
-                else {
-                  setTimeout(() => flatListRef.current?.scrollToEnd(), 160);
-                  setTimeout(() => flatListRef.current?.scrollToEnd(), 400);
-                }
-              }}
-              onSubmitEditing={() => {
-                if (!input.trim()) return;
-                handleSend();
-              }}
-            />
-            <TouchableOpacity
-              onPress={() => handleSend()}
-              style={[
-                styles.sendButton,
-                { backgroundColor: input.trim() ? theme.primary : (darkMode ? '#2B2F33' : '#E6EAEE') },
-              ]}
-              disabled={!input.trim()}
-            >
-              <MaterialIcons name="send" size={18} color={input.trim() ? '#fff' : (darkMode ? '#565B60' : '#98A2AE')} />
-            </TouchableOpacity>
-          </View>
+            <MaterialIcons name="send" size={18} color={input.trim() ? '#fff' : (darkMode ? '#565B60' : '#98A2AE')} />
+          </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
+      </Animated.View>
     </SafeAreaView>
   );
 };
@@ -812,39 +848,18 @@ const styles = StyleSheet.create({
   typingContainer: { flexDirection: 'row', alignItems: 'flex-end', flexWrap: 'wrap' },
   typingCursor: { width: 2, height: 18, marginLeft: 3, opacity: 1 },
 
-  // === 하단 입력 바 전용 KAV 래퍼(절대 위치) ===
-  kavWrap: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0, // 홈 인디케이터/스와이프 영역에 딱 붙게
-  },
-
   // 입력 영역
   inputContainer: {
     borderTopWidth: 1,
     paddingHorizontal: 15,
     paddingTop: 8,
   },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 22,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderWidth: 1,
-  },
+  inputWrapper: { flexDirection: 'row', alignItems: 'center', borderRadius: 22, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1 },
   attachButton: { width: 36, height: 36, justifyContent: 'center', alignItems: 'center', marginRight: 6 },
-  input: {
-    flex: 1,
-    fontSize: 16,
-    maxHeight: 120,
-    paddingVertical: Platform.OS === 'android' ? 10 : 8,
-    textAlignVertical: 'top',
-  },
+  input: { flex: 1, fontSize: 16, maxHeight: 120, paddingVertical: Platform.OS === 'android' ? 10 : 8, textAlignVertical: 'top' },
   sendButton: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center', marginLeft: 8 },
 
-  // 사이드바/모달(기존)
+  // 사이드바/모달
   sidebarOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', flexDirection: 'row' },
   sidebarBackdrop: { flex: 1 },
   sidebar: { width: 280, height: '100%', position: 'absolute', left: -300, top: 0, borderRightWidth: 1 },
@@ -891,6 +906,8 @@ const styles = StyleSheet.create({
   optionContent: { flex: 1 },
   optionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 2 },
   optionDescription: { fontSize: 13 },
+  modalCancelButton: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8, borderWidth: 1, alignItems: 'center' },
+  modalCancelText: { fontSize: 16, fontWeight: '600' },
 
   // 로그아웃 모달
   logoutConfirmModal: {
@@ -911,19 +928,6 @@ const styles = StyleSheet.create({
   logoutCancelText: { fontSize: 16, fontWeight: '700' },
   logoutConfirmButton: { flex: 1, padding: 14, borderRadius: 8, marginLeft: 8, alignItems: 'center' },
   logoutConfirmText: { fontSize: 16, color: '#fff', fontWeight: '800' },
-  modalCancelButton: { 
-  paddingVertical: 12, 
-  paddingHorizontal: 24, 
-  borderRadius: 8, 
-  borderWidth: 1, 
-  alignItems: 'center' 
-},
-modalCancelText: { 
-  fontSize: 16, 
-  fontWeight: '600', 
-  textAlign: 'center' 
-},
-
 });
 
 export default ChatBotScreen;

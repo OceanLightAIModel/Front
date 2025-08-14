@@ -12,6 +12,7 @@ import {
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 // 컴포넌트 imports
+import PrivacyPolicyScreen from './components/PrivacyPolicyScreen';
 import SplashScreen from './components/SplashScreen';
 import LoginScreen from './components/LoginScreen';
 import SignupScreen from './components/SignupScreen';
@@ -22,22 +23,20 @@ import SettingsScreen from './components/SettingsScreen';
 import CustomAlert from './components/CustomAlert';
 import PhotoGalleryScreen from './components/PhotoGalleryScreen';
 
-
-
 // 앱 전역 상태 관리용 Context
 interface AppContextType {
-  showCustomAlert: (title: string, message: string, buttons?: Array<{text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive'}>) => void;
+  showCustomAlert: (
+    title: string,
+    message: string,
+    buttons?: Array<{ text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive' }>
+  ) => void;
   navigateToScreen: (screen: string) => void;
   goBackToLogin: () => void;
 }
-
 const AppContext = React.createContext<AppContextType | null>(null);
-
 export const useAppContext = () => {
   const context = React.useContext(AppContext);
-  if (!context) {
-    throw new Error('useAppContext must be used within AppProvider');
-  }
+  if (!context) throw new Error('useAppContext must be used within AppProvider');
   return context;
 };
 
@@ -47,17 +46,17 @@ const App = () => {
   const [showExitModal, setShowExitModal] = React.useState(false);
   const [chatTheme, setChatTheme] = React.useState(false);
   const [darkMode, setDarkMode] = React.useState(false);
-  
+
   // 애니메이션
   const fadeAnimation = React.useRef(new Animated.Value(1)).current;
   const [isAnimating, setIsAnimating] = React.useState(false);
-  
+
   // 로그인 관련 상태
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [loginEmailError, setLoginEmailError] = React.useState('');
   const [loginPasswordError, setLoginPasswordError] = React.useState('');
-  
+
   // 회원가입 관련 상태
   const [signupName, setSignupName] = React.useState('');
   const [signupEmail, setSignupEmail] = React.useState('');
@@ -85,84 +84,52 @@ const App = () => {
   const [newPasswordConfirm, setNewPasswordConfirm] = React.useState('');
   const [resetEmailError, setResetEmailError] = React.useState('');
 
-  // 커스텀 Alert 상태
+  // 전역 Custom Alert
   const [customAlert, setCustomAlert] = React.useState({
     visible: false,
     title: '',
     message: '',
-    buttons: [{ text: '확인' }] as Array<{text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive'}>,
+    buttons: [{ text: '확인' }] as Array<{ text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive' }>,
   });
 
-  // 유틸리티 함수들
-  const validateEmail = (email: string) => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-  };
-
-  const validatePassword = (password: string) => {
-    const specialCharRegex = /[!@#$%^&*(),.?":{}|<>]/;
-    return specialCharRegex.test(password);
-  };
-
-  const validateName = (name: string) => {
-    const specialCharRegex = /[!@#$%^&*(),.?":{}|<>]/;
-    return !specialCharRegex.test(name);
-  };
+  // 유틸리티
+  const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const validatePassword = (password: string) => /[!@#$%^&*(),.?":{}|<>]/.test(password);
+  const validateName = (name: string) => !/[!@#$%^&*(),.?":{}|<>]/.test(name);
 
   const formatPhoneNumber = (phoneNumber: string) => {
     const cleaned = phoneNumber.replace(/\D/g, '');
     const match = cleaned.match(/^(\d{3})(\d{4})(\d{3})$/);
-    if (match) {
-      return `${match[1]}-${match[2]}-${match[3]}`;
-    }
+    if (match) return `${match[1]}-${match[2]}-${match[3]}`;
     return phoneNumber;
   };
 
-  // 전역 Alert 함수
-  const showCustomAlert = (title: string, message: string, buttons: Array<{text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive'}> = [{ text: '확인' }]) => {
-    setCustomAlert({
-      visible: true,
-      title,
-      message,
-      buttons,
-    });
-  };
+  // 전역 Alert
+  const showCustomAlert = (
+    title: string,
+    message: string,
+    buttons: Array<{ text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive' }> = [{ text: '확인' }]
+  ) => setCustomAlert({ visible: true, title, message, buttons });
 
-  // 화면 전환 함수 (페이드 애니메이션)
+  // 화면 전환(페이드)
   const navigateToScreen = (screen: string) => {
-    console.log('navigateToScreen 호출됨:', screen);
     if (isAnimating) return;
     setIsAnimating(true);
-    
-    Animated.timing(fadeAnimation, {
-      toValue: 0,
-      duration: 200,
-      useNativeDriver: true,
-    }).start(() => {
+    Animated.timing(fadeAnimation, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
       setCurrentScreen(screen);
-      Animated.timing(fadeAnimation, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }).start(() => {
+      Animated.timing(fadeAnimation, { toValue: 1, duration: 200, useNativeDriver: true }).start(() => {
         setIsAnimating(false);
       });
     });
   };
 
-  // 로그인으로 돌아가기 (상태 초기화 포함)
+  // 로그인으로 돌아가기(상태 초기화)
   const goBackToLogin = () => {
     if (isAnimating) return;
     setIsAnimating(true);
-    
-    Animated.timing(fadeAnimation, {
-      toValue: 0,
-      duration: 200,
-      useNativeDriver: true,
-    }).start(() => {
+    Animated.timing(fadeAnimation, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
       setCurrentScreen('login');
-      
-      // 모든 상태 초기화
+      // 상태 초기화
       setLoginEmailError('');
       setLoginPasswordError('');
       setSignupName('');
@@ -186,148 +153,114 @@ const App = () => {
       setNewPassword('');
       setNewPasswordConfirm('');
       setResetEmailError('');
-      
-      Animated.timing(fadeAnimation, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }).start(() => {
+      Animated.timing(fadeAnimation, { toValue: 1, duration: 200, useNativeDriver: true }).start(() => {
         setIsAnimating(false);
       });
     });
   };
 
-  // 스플래시 완료 핸들러
-  const handleSplashFinish = () => {
-    navigateToScreen('login');
-  };
+  // 스플래시 완료
+  const handleSplashFinish = () => navigateToScreen('login');
 
-  // 인증 타이머 효과
+  // 인증 타이머
   React.useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let t: NodeJS.Timeout | undefined;
     if (timerActive && verificationTimer > 0) {
-      interval = setInterval(() => {
-        setVerificationTimer(prev => prev - 1);
-      }, 1000);
+      t = setInterval(() => setVerificationTimer(prev => prev - 1), 1000);
     } else if (verificationTimer === 0) {
       setTimerActive(false);
     }
-    return () => clearInterval(interval);
+    return () => t && clearInterval(t);
   }, [timerActive, verificationTimer]);
 
   React.useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let t: NodeJS.Timeout | undefined;
     if (resetTimerActive && resetVerificationTimer > 0) {
-      interval = setInterval(() => {
-        setResetVerificationTimer(prev => prev - 1);
-      }, 1000);
+      t = setInterval(() => setResetVerificationTimer(prev => prev - 1), 1000);
     } else if (resetVerificationTimer === 0) {
       setResetTimerActive(false);
     }
-    return () => clearInterval(interval);
+    return () => t && clearInterval(t);
   }, [resetTimerActive, resetVerificationTimer]);
 
-  // 로그인 핸들러
+  // 로그인
   const handleLogin = () => {
     setLoginEmailError('');
     setLoginPasswordError('');
-
     if (!email) {
       setLoginEmailError('이메일을 입력해 주세요');
       setTimeout(() => setLoginEmailError(''), 3000);
       return;
     }
-
     if (!password) {
       setLoginPasswordError('비밀번호를 입력해 주세요');
       setTimeout(() => setLoginPasswordError(''), 3000);
       return;
     }
-
-    if (email === '1234@1234' && password === '1234') {
+    if (email === '1234@1234.com' && password === 'Ocean1234!') {
       navigateToScreen('chat');
     } else {
       showCustomAlert('로그인 실패', '아이디 또는 비밀번호가 잘못되었습니다.');
     }
   };
 
-  // 회원가입 핸들러
+  // 회원가입
   const handleSignup = () => {
     if (!signupName || !signupEmail || !signupPassword || !signupPasswordConfirm) {
       showCustomAlert('입력 오류', '모든 필드를 입력해 주세요.');
       return;
     }
-
     if (!validateName(signupName)) {
       showCustomAlert('입력 오류', '이름에는 특수문자를 사용할 수 없습니다.');
       return;
     }
-
     if (!validateEmail(signupEmail)) {
       showCustomAlert('입력 오류', '올바른 이메일 형식을 입력해 주세요.');
       return;
     }
-
     if (!validatePassword(signupPassword)) {
       showCustomAlert('입력 오류', '비밀번호에는 특수문자가 하나 이상 포함되어야 합니다.');
       return;
     }
-
     if (signupPassword !== signupPasswordConfirm) {
       showCustomAlert('비밀번호 오류', '비밀번호가 일치하지 않습니다.');
       return;
     }
-
-    if (signupPassword.length < 4) {
-      showCustomAlert('비밀번호 오류', '비밀번호는 최소 4자 이상이어야 합니다.');
+    if (signupPassword.length < 8) {
+      showCustomAlert('비밀번호 오류', '비밀번호는 최소 8자 이상이어야 합니다.');
       return;
     }
-
     if (!signupPhone) {
       showCustomAlert('입력 오류', '전화번호를 입력해 주세요.');
       return;
     }
-
     if (!isCodeSent) {
       showCustomAlert('인증 오류', '인증번호를 먼저 요청해 주세요.');
       return;
     }
-
     if (!verificationCode) {
       showCustomAlert('입력 오류', '인증번호를 입력해 주세요.');
       return;
     }
-
-    if (verificationCode !== '1234') {
+    if (verificationCode !== '123456') {
       showCustomAlert('인증 실패', '인증번호가 올바르지 않습니다.');
       return;
     }
-
     showCustomAlert('회원가입 완료', '회원가입이 성공적으로 완료되었습니다.', [
-      { 
-        text: '확인', 
-        onPress: () => goBackToLogin()
-      }
+      { text: '확인', onPress: () => goBackToLogin() },
     ]);
   };
 
-  // Context Provider 값
-  const contextValue: AppContextType = {
-    showCustomAlert,
-    navigateToScreen,
-    goBackToLogin,
-  };
+  // Context
+  const contextValue: AppContextType = { showCustomAlert, navigateToScreen, goBackToLogin };
 
   // 화면 렌더링
   const renderCurrentScreen = () => {
-    const animatedStyle = {
-      opacity: fadeAnimation
-    };
-
+    const animatedStyle = { opacity: fadeAnimation };
     switch (currentScreen) {
       case 'splash':
         return <SplashScreen onFinish={handleSplashFinish} />;
-        
+
       case 'login':
         return (
           <Animated.View style={[{ flex: 1 }, animatedStyle]}>
@@ -349,7 +282,7 @@ const App = () => {
             />
           </Animated.View>
         );
-        
+
       case 'signup':
         return (
           <Animated.View style={[{ flex: 1 }, animatedStyle]}>
@@ -378,7 +311,7 @@ const App = () => {
             />
           </Animated.View>
         );
-        
+
       case 'findAccount':
         return (
           <Animated.View style={[{ flex: 1 }, animatedStyle]}>
@@ -397,7 +330,7 @@ const App = () => {
             />
           </Animated.View>
         );
-        
+
       case 'resetPassword':
         return (
           <Animated.View style={[{ flex: 1 }, animatedStyle]}>
@@ -429,62 +362,63 @@ const App = () => {
             />
           </Animated.View>
         );
-        
+
       case 'settings':
         return (
-          <SettingsScreen 
-            navigation={{ goBack: () => navigateToScreen('chat') }}
+          <SettingsScreen
+            navigation={{
+              goBack: () => navigateToScreen('chat'),
+              goToPrivacyPolicy: () => navigateToScreen('privacyPolicy'),
+            }}
             chatTheme={chatTheme}
             setChatTheme={setChatTheme}
             darkMode={darkMode}
             setDarkMode={setDarkMode}
           />
         );
-        
-      case 'photoGallery':
+
+      case 'privacyPolicy':
         return (
           <Animated.View style={[{ flex: 1 }, animatedStyle]}>
-            <PhotoGalleryScreen 
-              navigation={{ goBack: () => navigateToScreen('chat') }}
+            <PrivacyPolicyScreen
+              navigation={{ goBack: () => navigateToScreen('settings') }}
+              darkMode={darkMode}
             />
           </Animated.View>
         );
-        
+
+      case 'photoGallery':
+        return (
+          <Animated.View style={[{ flex: 1 }, animatedStyle]}>
+            <PhotoGalleryScreen navigation={{ goBack: () => navigateToScreen('chat') }} />
+          </Animated.View>
+        );
+
       default: // chat
         return (
           <View style={styles.container}>
-            <ChatBotScreen 
-              navigation={{ 
+            <ChatBotScreen
+              navigation={{
                 goBack: () => setShowExitModal(true),
                 goToSettings: () => navigateToScreen('settings'),
                 goToPhotoGallery: () => navigateToScreen('photoGallery'),
-                goToLogin: () => navigateToScreen('login')
+                goToLogin: () => navigateToScreen('login'),
               }}
               chatTheme={chatTheme}
               darkMode={darkMode}
             />
-            
+
             {/* 앱 종료 확인 모달 */}
-            <Modal
-              visible={showExitModal}
-              transparent={true}
-              animationType="fade"
-            >
+            <Modal visible={showExitModal} transparent animationType="fade">
               <View style={styles.modalOverlay}>
                 <View style={styles.exitModal}>
                   <Text style={styles.exitModalTitle}>앱 종료</Text>
-                  <Text style={styles.exitModalMessage}>
-                    정말로 앱을 종료하시겠습니까?
-                  </Text>
+                  <Text style={styles.exitModalMessage}>정말로 앱을 종료하시겠습니까?</Text>
                   <View style={styles.exitModalButtons}>
-                    <TouchableOpacity 
-                      style={styles.exitCancelButton}
-                      onPress={() => setShowExitModal(false)}
-                    >
+                    <TouchableOpacity style={styles.exitCancelButton} onPress={() => setShowExitModal(false)}>
                       <Text style={styles.exitCancelText}>취소</Text>
                     </TouchableOpacity>
-                    
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={styles.exitConfirmButton}
                       onPress={() => {
                         setShowExitModal(false);
@@ -504,11 +438,11 @@ const App = () => {
 
   return (
     <SafeAreaProvider>
-      <AppContext.Provider value={contextValue}>
+      <AppContext.Provider value={{ showCustomAlert, navigateToScreen, goBackToLogin }}>
         <View style={styles.container}>
           <StatusBar barStyle="light-content" backgroundColor="#0080ff" />
           {renderCurrentScreen()}
-          
+
           {/* 전역 Custom Alert */}
           <CustomAlert
             visible={customAlert.visible}
@@ -524,10 +458,7 @@ const App = () => {
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f8f9fa',
-  },
+  container: { flex: 1, backgroundColor: '#f8f9fa' },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -541,32 +472,14 @@ const styles = StyleSheet.create({
     width: '80%',
     maxWidth: 300,
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 10,
-    },
+    shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.25,
     shadowRadius: 20,
     elevation: 15,
   },
-  exitModalTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    textAlign: 'center',
-    marginBottom: 10,
-  },
-  exitModalMessage: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 25,
-    lineHeight: 20,
-  },
-  exitModalButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
+  exitModalTitle: { fontSize: 18, fontWeight: 'bold', color: '#333', textAlign: 'center', marginBottom: 10 },
+  exitModalMessage: { fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 25, lineHeight: 20 },
+  exitModalButtons: { flexDirection: 'row', justifyContent: 'space-between' },
   exitCancelButton: {
     flex: 1,
     paddingVertical: 12,
@@ -585,18 +498,8 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginLeft: 5,
   },
-  exitCancelText: {
-    color: '#666',
-    fontSize: 16,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  exitConfirmText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
+  exitCancelText: { color: '#666', fontSize: 16, fontWeight: '600', textAlign: 'center' },
+  exitConfirmText: { color: '#fff', fontSize: 16, fontWeight: '600', textAlign: 'center' },
 });
 
 export default App;

@@ -35,7 +35,7 @@ interface ResetPasswordScreenProps {
   setResetEmailError: (error: string) => void;
   fadeAnimation: Animated.Value;
   validateEmail: (email: string) => boolean;
-  validatePassword: (password: string) => boolean;
+  validatePassword: (password: string) => boolean; // 사용은 하지만 자체 규칙 검사도 수행
   onBackToLogin: () => void;
   onNavigateToFindAccount: () => void;
   showCustomAlert: (title: string, message: string, buttons?: Array<{text: string; onPress?: () => void}>) => void;
@@ -95,31 +95,52 @@ const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
       showCustomAlert('입력 오류', '인증번호를 입력해 주세요.');
       return;
     }
-    if (resetVerificationCode === '1234') {
+    if (resetVerificationCode === '123456') {
       setShowPasswordReset(true);
     } else {
       showCustomAlert('인증 실패', '인증번호가 올바르지 않습니다.');
     }
   };
 
+  // 회원가입과 동일한 규칙 적용: 대문자/숫자/특수문자 포함 8자 이상 + 일치 여부
   const handleResetPassword = () => {
-    if (!newPassword || !newPasswordConfirm) {
+    const pwd = newPassword ?? '';
+    const confirm = newPasswordConfirm ?? '';
+
+    if (!pwd || !confirm) {
       showCustomAlert('입력 오류', '모든 필드를 입력해 주세요.');
       return;
     }
 
-    if (!validatePassword(newPassword)) {
-      showCustomAlert('입력 오류', '비밀번호에는 특수문자가 하나 이상 포함되어야 합니다.');
+    const hasUpper = /[A-Z]/.test(pwd);
+    const hasNumber = /\d/.test(pwd);
+    const hasSpecial = /[^A-Za-z0-9]/.test(pwd);
+    const longEnough = pwd.length >= 8;
+
+    if (!longEnough) {
+      showCustomAlert('비밀번호 규칙', '비밀번호는 8자리 이상이어야 합니다.');
+      return;
+    }
+    if (!hasUpper) {
+      showCustomAlert('비밀번호 규칙', '영어 대문자를 최소 1자 포함해야 합니다.');
+      return;
+    }
+    if (!hasNumber) {
+      showCustomAlert('비밀번호 규칙', '숫자를 최소 1자 포함해야 합니다.');
+      return;
+    }
+    if (!hasSpecial) {
+      showCustomAlert('비밀번호 규칙', '특수문자를 최소 1자 포함해야 합니다.');
+      return;
+    }
+    if (pwd !== confirm) {
+      showCustomAlert('비밀번호 확인', '비밀번호가 일치하지 않습니다.');
       return;
     }
 
-    if (newPassword !== newPasswordConfirm) {
-      showCustomAlert('비밀번호 오류', '비밀번호가 일치하지 않습니다.');
-      return;
-    }
-
-    if (newPassword.length < 4) {
-      showCustomAlert('비밀번호 오류', '비밀번호는 최소 4자 이상이어야 합니다.');
+    // (선택) 기존 validatePassword까지 통과시키고 싶다면 유지
+    if (!validatePassword(pwd)) {
+      showCustomAlert('입력 오류', '비밀번호 형식이 올바르지 않습니다.');
       return;
     }
 
@@ -158,7 +179,7 @@ const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
               <Text style={styles.appSubtitle}>AI 펫 헬스케어 솔루션</Text>
             </Animated.View>
 
-            {/* 중앙 폼 - 애니메이션 제거하여 안정적 렌더링 */}
+            {/* 중앙 폼 */}
             <View style={styles.formContainer}>
               <View style={styles.loginBox}>
                 {/* X 버튼 */}
@@ -176,7 +197,7 @@ const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
                 {!showPasswordReset ? (
                   <>
                     <View style={styles.tempInfoContainer}>
-                      <Text style={styles.tempInfoText}>임시 이메일: 1234@1234</Text>
+                      <Text style={styles.tempInfoText}>임시 이메일: 1234@1234.com</Text>
                     </View>
                     
                     <View style={styles.phoneInputWrapper}>
@@ -227,7 +248,7 @@ const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
                           ✓ 이메일로 인증번호가 발송되었습니다
                         </Text>
                         <Text style={styles.tempCodeText}>
-                          임시 인증번호: 1234
+                          임시 인증번호: 123456
                         </Text>
                       </View>
                     )}
@@ -282,6 +303,10 @@ const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
                       blurOnSubmit={false}
                       returnKeyType="next"
                     />
+                    {/* 비밀번호 규칙 힌트(작게) */}
+                    <Text style={styles.passwordHint}>
+                      (대문자/숫자/특수문자 포함 8자 이상)
+                    </Text>
 
                     <TextInput
                       style={styles.input}
@@ -554,6 +579,14 @@ const styles = StyleSheet.create({
     color: '#0080ff',
     fontWeight: '600',
     textDecorationLine: 'underline',
+  },
+  // 비밀번호 규칙 힌트 스타일
+  passwordHint: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: -10,
+    marginBottom: 10,
+    paddingHorizontal: 5,
   },
 });
 
