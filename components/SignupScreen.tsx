@@ -13,6 +13,9 @@ import {
   BackHandler,
   Alert,
 } from 'react-native';
+import axios from 'axios';
+
+const API_BASE_URL = 'http://54.180.2.162:8000'; // Nginx 없이 바로 Uvicorn이면 :8000 유지, Nginx 붙였으면 80/443로 변경
 
 interface SignupScreenProps {
   signupName: string;
@@ -34,7 +37,7 @@ interface SignupScreenProps {
   timerActive: boolean;
   setTimerActive: (active: boolean) => void;
   formatPhoneNumber: (text: string) => string;
-  onSignup: () => void;
+  onSignup: () => void;          // (선택) 부모에서 쓰고 있으면 유지. 내부 axios 성공 후 호출해도 됨.
   onBackToLogin: () => void;
 }
 
@@ -67,13 +70,24 @@ const SignupScreen: React.FC<SignupScreenProps> = ({
       onBackToLogin();
       return true;
     };
-
     const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
     return () => backHandler.remove();
   }, [onBackToLogin]);
 
-  // 비밀번호 규칙 검사 + 조건별 Alert
-  const handleSignupPress = () => {
+  // 숫자만 추출해서 11자리인지 체크 (형식 문자 '-' 포함 입력에도 대응)
+  const digitsOnly = signupPhone.replace(/\D/g, '');
+  const isPhoneValid = digitsOnly.length === 11;
+
+  const handleRequestCode = () => {
+    if (!isPhoneValid || timerActive) return;
+    setIsCodeSent(true);
+    setVerificationTimer(180); // 3분
+    setTimerActive(true);
+    // 실제 앱에서는 여기서 SMS 인증코드를 전송
+  };
+
+  // 회원가입 처리 (백엔드 연동)
+  const handleSignupPress = async () => {
     const pwd = signupPassword ?? '';
     const confirm = signupPasswordConfirm ?? '';
 
@@ -102,21 +116,53 @@ const SignupScreen: React.FC<SignupScreenProps> = ({
       Alert.alert('비밀번호 확인', '비밀번호가 일치하지 않습니다.');
       return;
     }
+    if (!signupName.trim()) {
+      Alert.alert('입력 확인', '이름을 입력해 주세요.');
+      return;
+    }
+    if (!signupEmail.trim()) {
+      Alert.alert('입력 확인', '이메일을 입력해 주세요.');
+      return;
+    }
 
-    onSignup();
-  };
+    try {
+      // 백엔드 스키마에 맞춰 전송 (password_hash 필드명 주의)
+      const payload = {
+        username: signupName.trim(),
+        email: signupEmail.trim(),
+        password_hash: pwd,
+      };
 
-  // 숫자만 추출해서 11자리인지 체크 (형식 문자 '-' 포함 입력에도 대응)
-  const digitsOnly = signupPhone.replace(/\D/g, '');
-  const isPhoneValid = digitsOnly.length === 11;
+      const res = await axios.post(`${API_BASE_URL}/register`, payload, {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 10000,
+      });
 
-  const handleRequestCode = () => {
-    if (!isPhoneValid || timerActive) return;
-
-    setIsCodeSent(true);
-    setVerificationTimer(180); // 3분
-    setTimerActive(true);
-    // 실제 앱에서는 여기서 SMS 인증코드를 전송
+      // 성공 시: 토큰 수신 (access_token, refresh_token)
+      const { access_token, refresh_token } = res.data || {};
+      Alert.alert(
+        '회원가입 완료',
+        '성공적으로 가입되었습니다. 이제 로그인할 수 있어요!',
+        [
+          {
+            text: '확인',
+            onPress: () => {
+              // 필요 시 토큰 저장 로직 추가(AsyncStorage 등)
+              // 호출자가 onSignup을 사용한다면 호출
+              try { onSignup && onSignup(); } catch {}
+              onBackToLogin();
+            },
+          },
+        ],
+      );
+    } catch (err: any) {
+      // 서버에서 detail 메시지를 내려주면 그대로 표시
+      const msg =
+        err?.response?.data?.detail ||
+        err?.message ||
+        '회원가입 중 오류가 발생했습니다.';
+      Alert.alert('회원가입 실패', String(msg));
+    }
   };
 
   return (
