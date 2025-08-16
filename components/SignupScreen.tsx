@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import axios from 'axios';
 
-const API_BASE_URL = 'http://54.180.2.162:8000'; // Nginx 없이 바로 Uvicorn이면 :8000 유지, Nginx 붙였으면 80/443로 변경
+const API_BASE_URL = 'http://3.39.234.93:8000';
 
 interface SignupScreenProps {
   signupName: string;
@@ -87,7 +87,9 @@ const SignupScreen: React.FC<SignupScreenProps> = ({
   };
 
   // 회원가입 처리 (백엔드 연동)
+// 회원가입 처리 (백엔드 연동)
   const handleSignupPress = async () => {
+    // --- 여기부터 ---
     const pwd = signupPassword ?? '';
     const confirm = signupPasswordConfirm ?? '';
 
@@ -125,12 +127,15 @@ const SignupScreen: React.FC<SignupScreenProps> = ({
       return;
     }
 
+    // --- 여기까지는 기존 코드와 동일합니다 ---
+
+    // --- ✨ 여기가 새로 추가/수정된 부분입니다! ✨ ---
     try {
-      // 백엔드 스키마에 맞춰 전송 (password_hash 필드명 주의)
+      // 백엔드 스키마에 맞춰 'password' 필드로 전송합니다.
       const payload = {
         username: signupName.trim(),
         email: signupEmail.trim(),
-        password_hash: pwd,
+        password: pwd, // 'password_hash'가 아닌 'password'로 보내야 합니다.
       };
 
       const res = await axios.post(`${API_BASE_URL}/register`, payload, {
@@ -138,8 +143,7 @@ const SignupScreen: React.FC<SignupScreenProps> = ({
         timeout: 10000,
       });
 
-      // 성공 시: 토큰 수신 (access_token, refresh_token)
-      const { access_token, refresh_token } = res.data || {};
+      // 성공 응답 처리
       Alert.alert(
         '회원가입 완료',
         '성공적으로 가입되었습니다. 이제 로그인할 수 있어요!',
@@ -147,21 +151,40 @@ const SignupScreen: React.FC<SignupScreenProps> = ({
           {
             text: '확인',
             onPress: () => {
-              // 필요 시 토큰 저장 로직 추가(AsyncStorage 등)
-              // 호출자가 onSignup을 사용한다면 호출
-              try { onSignup && onSignup(); } catch {}
-              onBackToLogin();
+              onSignup(); // 성공 콜백
+              onBackToLogin(); // 로그인 화면으로 이동
             },
           },
         ],
       );
     } catch (err: any) {
-      // 서버에서 detail 메시지를 내려주면 그대로 표시
-      const msg =
-        err?.response?.data?.detail ||
-        err?.message ||
-        '회원가입 중 오류가 발생했습니다.';
-      Alert.alert('회원가입 실패', String(msg));
+      // --- ✨ [수정] 에러 메시지를 더 자세하게 보여주도록 로직 강화 ---
+      console.error("Signup Error Raw:", err.response || err);
+
+      let errorMessage = '회원가입 중 오류가 발생했습니다.';
+
+      if (err.response && err.response.data) {
+        const errorDetail = err.response.data.detail;
+        if (typeof errorDetail === 'string') {
+          errorMessage = errorDetail;
+        } else if (Array.isArray(errorDetail) && errorDetail.length > 0) {
+          // FastAPI 유효성 검사 에러를 더 자세히 표시합니다.
+          const firstError = errorDetail[0];
+          // ex: ["body", "password_hash"]
+          const fieldPath = firstError.loc || ['body', 'unknown'];
+          // ex: "password_hash"
+          const fieldName = fieldPath[fieldPath.length - 1]; 
+          // ex: "field required"
+          const errorMsg = firstError.msg; 
+          errorMessage = `'${fieldName}' 필드가 누락되었습니다. (${errorMsg})`;
+        } else if (typeof errorDetail === 'object' && errorDetail !== null) {
+          errorMessage = JSON.stringify(errorDetail);
+        }
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
+      Alert.alert('회원가입 실패', errorMessage);
     }
   };
 

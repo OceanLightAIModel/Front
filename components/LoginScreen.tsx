@@ -13,7 +13,9 @@ import {
   Platform,
   BackHandler,
 } from 'react-native';
+import axios from 'axios';
 
+const API_BASE_URL = 'http://3.39.234.93:8000';
 interface LoginScreenProps {
   email: string;
   setEmail: (email: string) => void;
@@ -63,6 +65,39 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
     const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
     return () => backHandler.remove();
   }, [showCustomAlert]);
+const handleLoginPress = async () => {
+  if (!email.trim()) {
+    setLoginEmailError('이메일을 입력해주세요.');
+    return;
+  }
+  if (!password.trim()) {
+    setLoginPasswordError('비밀번호를 입력해주세요.');
+    return;
+  }
+  setLoginEmailError('');
+  setLoginPasswordError('');
+
+  try {
+    // 백엔드 스키마에 맞춰 'identifier' 필드로 이메일을 전송합니다.
+    const payload = {
+      identifier: email.trim(),
+      password: password,
+    };
+
+    const response = await axios.post(`${API_BASE_URL}/login`, payload);
+
+    if (response.status === 200 && response.data.access_token) {
+      console.log('로그인 성공:', response.data);
+      // TODO: 받은 토큰들을 AsyncStorage에 저장해야 합니다.
+      showCustomAlert('로그인 성공', '환영합니다!');
+      onLogin(); // App.tsx의 isLoggedIn 상태를 true로 변경
+    }
+  } catch (error: any) {
+    console.error("Login Error:", error.response?.data || error.message);
+    const errorMessage = error.response?.data?.detail || '로그인에 실패했습니다. 다시 시도해주세요.';
+    showCustomAlert('로그인 실패', errorMessage);
+  }
+};
 
   return (
     <SafeAreaView style={styles.container}>
@@ -124,7 +159,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
                 />
                 {loginPasswordError ? <Text style={styles.errorText}>{loginPasswordError}</Text> : null}
 
-                <TouchableOpacity style={styles.loginButton} onPress={onLogin}>
+                <TouchableOpacity style={styles.loginButton} onPress={handleLoginPress}>
                   <Text style={styles.loginButtonText}>로그인</Text>
                 </TouchableOpacity>
 
