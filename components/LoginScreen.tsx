@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -12,10 +12,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   BackHandler,
+  ActivityIndicator,
 } from 'react-native';
 import axios from 'axios';
+  import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_BASE_URL } from './api';
 
-const API_BASE_URL = 'http://3.39.234.93:8000';
 interface LoginScreenProps {
   email: string;
   setEmail: (email: string) => void;
@@ -30,7 +32,11 @@ interface LoginScreenProps {
   onNavigateToSignup: () => void;
   onNavigateToFindAccount: () => void;
   onNavigateToResetPassword: () => void;
-  showCustomAlert: (title: string, message: string, buttons?: Array<{text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive'}>) => void;
+  showCustomAlert: (
+    title: string,
+    message: string,
+    buttons?: Array<{ text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive' }>
+  ) => void;
 }
 
 const LoginScreen: React.FC<LoginScreenProps> = ({
@@ -49,85 +55,89 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
   onNavigateToResetPassword,
   showCustomAlert,
 }) => {
-  // 하드웨어 뒤로가기 버튼 처리
+  const [isLoading, setIsLoading] = useState(false);
+
   useEffect(() => {
     const backAction = () => {
-      showCustomAlert(
-        '앱 종료',
-        '정말로 앱을 종료하시겠습니까?',
-        [
-          { text: '취소', style: 'cancel', onPress: () => {} },
-          { text: '종료', style: 'destructive', onPress: () => BackHandler.exitApp() }
-        ]
-      );
+      showCustomAlert('앱 종료', '정말로 앱을 종료하시겠습니까?', [
+        { text: '취소', style: 'cancel' },
+        { text: '종료', style: 'destructive', onPress: () => BackHandler.exitApp() },
+      ]);
       return true;
     };
     const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
     return () => backHandler.remove();
   }, [showCustomAlert]);
-const handleLoginPress = async () => {
-  if (!email.trim()) {
-    setLoginEmailError('이메일을 입력해주세요.');
-    return;
-  }
-  if (!password.trim()) {
-    setLoginPasswordError('비밀번호를 입력해주세요.');
-    return;
-  }
-  setLoginEmailError('');
-  setLoginPasswordError('');
 
-  try {
-    // 백엔드 스키마에 맞춰 'identifier' 필드로 이메일을 전송합니다.
-    const payload = {
-      identifier: email.trim(),
-      password: password,
-    };
-
-    const response = await axios.post(`${API_BASE_URL}/login`, payload);
-
-    if (response.status === 200 && response.data.access_token) {
-      console.log('로그인 성공:', response.data);
-      // TODO: 받은 토큰들을 AsyncStorage에 저장해야 합니다.
-      showCustomAlert('로그인 성공', '환영합니다!');
-      onLogin(); // App.tsx의 isLoggedIn 상태를 true로 변경
+  const handleLoginPress = async () => {
+    // 1. 입력값 검증
+    if (!email.trim()) {
+      setLoginEmailError('이메일을 입력해주세요.');
+      return;
     }
-  } catch (error: any) {
-    console.error("Login Error:", error.response?.data || error.message);
-    const errorMessage = error.response?.data?.detail || '로그인에 실패했습니다. 다시 시도해주세요.';
-    showCustomAlert('로그인 실패', errorMessage);
-  }
-};
+    if (!password.trim()) {
+      setLoginPasswordError('비밀번호를 입력해주세요.');
+      return;
+    }
+
+    setLoginEmailError('');
+    setLoginPasswordError('');
+    setIsLoading(true);
+
+    try {
+      // 2. 서버에 전송할 데이터 준비 (폼 형식)
+      const formData = new URLSearchParams();
+      formData.append('username', email.trim());
+      formData.append('password', password);
+
+      // 3. 로그인 요청
+      const response = await axios.post(`${API_BASE_URL}/auth/login`, formData, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      });
+
+      // 4. 성공 시 토큰 저장
+      if (response.status === 200 && response.data.access_token) {
+        const { access_token, refresh_token } = response.data;
+        await AsyncStorage.setItem('accessToken', access_token);
+        await AsyncStorage.setItem('refreshToken', refresh_token);
+
+        showCustomAlert('로그인 성공', '환영합니다!');
+        onLogin();
+      }
+    } catch (error: any) {
+      console.error('Login Error:', error.response?.data || error.message);
+      const errorMessage = error.response?.data?.detail || '로그인에 실패했습니다. 다시 시도해주세요.';
+      showCustomAlert('로그인 실패', errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0080ff" />
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         style={styles.keyboardContainer}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <ScrollView 
+        <ScrollView
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.loginContainer}>
-            {/* 상단 로고 영역 - 애니메이션 적용 */}
             <Animated.View style={[styles.logoContainer, { opacity: fadeAnimation }]}>
               <Text style={styles.appTitle}>AI Pet Care</Text>
               <Text style={styles.appSubtitle}>AI 펫 케어 솔루션</Text>
             </Animated.View>
 
-            {/* 중앙 로그인 폼 */}
             <View style={styles.formContainer}>
               <View style={styles.loginBox}>
                 <Text style={styles.loginTitle}>로그인</Text>
-                <View style={styles.tempInfoContainer}>
-                  <Text style={styles.tempInfoText}>임시 이메일: 1234@1234.com</Text>
-                  <Text style={styles.tempInfoText}>임시 비밀번호: Ocean1234!</Text>
-                </View>
-                
+
                 <TextInput
                   style={styles.input}
                   placeholder="이메일"
@@ -159,15 +169,23 @@ const handleLoginPress = async () => {
                 />
                 {loginPasswordError ? <Text style={styles.errorText}>{loginPasswordError}</Text> : null}
 
-                <TouchableOpacity style={styles.loginButton} onPress={handleLoginPress}>
-                  <Text style={styles.loginButtonText}>로그인</Text>
+                <TouchableOpacity
+                  style={styles.loginButton}
+                  onPress={handleLoginPress}
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.loginButtonText}>로그인</Text>
+                  )}
                 </TouchableOpacity>
 
                 <View style={styles.linkContainer}>
                   <TouchableOpacity onPress={onNavigateToSignup}>
                     <Text style={styles.linkText}>회원가입</Text>
                   </TouchableOpacity>
-                  <Text style={styles.linkDivider}>|</Text>
+                    <Text style={styles.linkDivider}>|</Text>
                   <TouchableOpacity onPress={onNavigateToFindAccount}>
                     <Text style={styles.linkText}>계정 찾기</Text>
                   </TouchableOpacity>
@@ -179,7 +197,6 @@ const handleLoginPress = async () => {
               </View>
             </View>
 
-            {/* 하단 여백 */}
             <View style={styles.bottomSpacer} />
           </View>
         </ScrollView>
@@ -188,6 +205,7 @@ const handleLoginPress = async () => {
   );
 };
 
+// 스타일 정의
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8f9fa' },
   keyboardContainer: { flex: 1 },
@@ -212,8 +230,6 @@ const styles = StyleSheet.create({
   },
   bottomSpacer: { flex: 0.5 },
   loginTitle: { fontSize: 22, fontWeight: 'bold', color: '#333', textAlign: 'center', marginBottom: 15 },
-  tempInfoContainer: { alignItems: 'center', marginBottom: 20 },
-  tempInfoText: { fontSize: 12, color: '#666', marginBottom: 3 },
   input: {
     height: 50,
     borderWidth: 0,
