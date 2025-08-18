@@ -15,7 +15,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import axios from 'axios';
-  import AsyncStorage from '@react-native-async-storage/async-storage';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL } from './api';
 
 interface LoginScreenProps {
@@ -38,7 +38,16 @@ interface LoginScreenProps {
     buttons?: Array<{ text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive' }>
   ) => void;
 }
-
+const handleLoginSuccess = async (response: any) => {
+  const { access, refresh, username } = response.data;
+  // access 토큰 저장
+  await AsyncStorage.setItem('accessToken', access);
+  // ★ refresh 토큰도 저장
+  await AsyncStorage.setItem('refreshToken', refresh);
+  // 사용자명 저장(필요하다면)
+  await AsyncStorage.setItem('username', username);
+  // 이후 화면 이동 등 처리...
+};
 const LoginScreen: React.FC<LoginScreenProps> = ({
   email,
   setEmail,

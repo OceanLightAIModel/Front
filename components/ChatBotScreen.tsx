@@ -30,7 +30,10 @@ import {
   getThreads,
   getMessages,
   updateThread,
-  deleteThread, } from './api'; 
+  deleteThread,
+  getUserProfile 
+   } from './api'; 
+import { KeyboardAvoidingView } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type Message = {
@@ -100,10 +103,6 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
   const [renameModalVisible, setRenameModalVisible] = useState(false);
   const [newTitle, setNewTitle] = useState('');
 
-  // 키보드 높이(숫자) + 애니메이션 값
-  const [keyboardInset, setKeyboardInset] = useState(0);
-  const inputTranslateY = useRef(new Animated.Value(0)).current;
-
   const flatListRef = useRef<KeyboardAwareFlatList>(null);
   const sidebarAnimation = useRef(new Animated.Value(-300)).current;
   const spinnerAnimation = useRef(new Animated.Value(0)).current;
@@ -114,55 +113,27 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
     { icon: 'pets', title: '펫 헬스케어', description: '사료, 증상, 생활습관 등 무엇이든 물어보세요' },
   ];
 
-  // --- 키보드 이벤트: 보임/숨김에 따라 입력창을 올렸다가 원위치로 ---
-  useEffect(() => {
-    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-
-    const onShow = (e: any) => {
-      const height = Math.max(0, e?.endCoordinates?.height ?? 0);
-      const insetToUse = Math.max(0, height - (insets.bottom || 0)); // 아이폰 홈인디케이터 중복 방지
-      setKeyboardInset(insetToUse);
-      Animated.timing(inputTranslateY, {
-        toValue: -insetToUse,
-        duration: Platform.OS === 'ios' ? e?.duration ?? 250 : 200,
-        useNativeDriver: true,
-      }).start(() => {
-        // 포커스 시 리스트 맨 아래로
-        setTimeout(() => flatListRef.current?.scrollToEnd(), Platform.OS === 'ios' ? 60 : 120);
-      });
-    };
-
-    const onHide = (e: any) => {
-      setKeyboardInset(0);
-      Animated.timing(inputTranslateY, {
-        toValue: 0,
-        duration: Platform.OS === 'ios' ? e?.duration ?? 200 : 180,
-        useNativeDriver: true,
-      }).start(); // ← 원래 자리로 정확히 복귀
-    };
-
-    const subShow = Keyboard.addListener(showEvt, onShow);
-    const subHide = Keyboard.addListener(hideEvt, onHide);
-    return () => {
-      subShow.remove();
-      subHide.remove();
-    };
-  }, [insets.bottom, inputTranslateY]);
+  // 키보드 이동 관련 코드 완전 제거 (KeyboardAvoidingView만 사용)
 
   useEffect(() => {
     if (messages.length > 0) setTimeout(() => flatListRef.current?.scrollToEnd(), 80);
   }, [messages]);
 
-  useEffect(() => {
-    const loadUsername = async () => {
-      const storedUsername = await AsyncStorage.getItem('username');
-      if (storedUsername) {
-        setUsername(storedUsername);
-      }
-    };
-    loadUsername();
-  }, []);
+    useEffect(() => {
+      const fetchProfile = async () => {
+        try {
+          const res = await getUserProfile();
+          // res.data.username, res.data.nickname 등 백엔드 응답에 맞춰 수정하세요.
+          const name = res.data.username || res.data.nickname;
+          setUsername(name);
+          // 로컬 저장도 필요하다면 저장
+          await AsyncStorage.setItem('username', name);
+        } catch (e) {
+          console.error('사용자 정보 불러오기 실패:', e);
+        }
+      };
+      fetchProfile();
+    }, []);
 
   useEffect(() => {
     const backAction = () => {
@@ -757,7 +728,12 @@ const handleSend = async (text?: string) => {
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={headerHeight}
+    >
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}> 
       <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} backgroundColor={theme.headerBg} />
 
       {renderSidebar()}
@@ -822,7 +798,7 @@ const handleSend = async (text?: string) => {
           <Text style={[styles.welcomeText, { color: theme.subtext }]}>
             환영합니다{'\n'}
           <Text style={[styles.teamText, { color: theme.subtext }]}>
-            {username ? `${username}님` : '[user]님'}
+            {`${username}님`}
           </Text>
           </Text>
           <TouchableOpacity
@@ -883,7 +859,7 @@ const handleSend = async (text?: string) => {
             // 입력바 높이 + 안전영역 + 키보드 높이만큼 패딩
             contentContainerStyle={{
               padding: 15,
-              paddingBottom: INPUT_BAR_MIN_HEIGHT + (insets.bottom || 0) + keyboardInset + 8,
+              paddingBottom: INPUT_BAR_MIN_HEIGHT + (insets.bottom || 0) + 8,
             }}
             ListHeaderComponent={
               chatStartTime ? (
@@ -907,8 +883,8 @@ const handleSend = async (text?: string) => {
         )}
       </View>
 
-      {/* 입력창: 키보드 높이만큼 애니메이션으로 올림/내림 */}
-      <Animated.View
+      {/* 입력창: KeyboardAvoidingView만 사용, 일반 View로 변경 */}
+      <View
         style={[
           styles.inputContainer,
           {
@@ -916,7 +892,6 @@ const handleSend = async (text?: string) => {
             borderTopColor: theme.border,
             paddingBottom: insets.bottom || 0,
             minHeight: INPUT_BAR_MIN_HEIGHT,
-            transform: [{ translateY: inputTranslateY }],
           },
         ]}
       >
@@ -962,9 +937,10 @@ const handleSend = async (text?: string) => {
             <MaterialIcons name="send" size={18} color={input.trim() ? '#fff' : (darkMode ? '#565B60' : '#98A2AE')} />
           </TouchableOpacity>
         </View>
-      </Animated.View>
+      </View>
     </SafeAreaView>
-  );
+  </KeyboardAvoidingView>
+);
 };
 
 const styles = StyleSheet.create({

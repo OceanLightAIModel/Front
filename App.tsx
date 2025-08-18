@@ -1,4 +1,8 @@
-import React from 'react';
+// App.tsx
+import React, { useEffect, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
+import { API_BASE_URL } from './components/api';
 import {
   View,
   StatusBar,
@@ -41,6 +45,10 @@ export const useAppContext = () => {
 };
 
 const App = () => {
+  // refresh 토큰을 이용한 자동 로그인 상태
+  const [isLoading, setLoading] = useState(true);    // 초기 로딩 여부
+  const [isLoggedIn, setLoggedIn] = useState(false); // 로그인 여부
+
   // 전역 상태
   const [currentScreen, setCurrentScreen] = React.useState('splash');
   const [showExitModal, setShowExitModal] = React.useState(false);
@@ -92,7 +100,7 @@ const App = () => {
     buttons: [{ text: '확인' }] as Array<{ text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive' }>,
   });
 
-  // 유틸리티
+  // 이메일/비밀번호 등 검증 함수
   const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   const validatePassword = (password: string) => /[!@#$%^&*(),.?":{}|<>]/.test(password);
   const validateName = (name: string) => !/[!@#$%^&*(),.?":{}|<>]/.test(name);
@@ -104,7 +112,7 @@ const App = () => {
     return phoneNumber;
   };
 
-  // 전역 Alert
+  // 전역 Alert 표시 함수
   const showCustomAlert = (
     title: string,
     message: string,
@@ -183,9 +191,7 @@ const App = () => {
     return () => t && clearInterval(t);
   }, [resetTimerActive, resetVerificationTimer]);
 
-  // 로그인
-
-  // 회원가입
+  // 회원가입 처리 함수
   const handleSignup = () => {
     if (!signupName || !signupEmail || !signupPassword || !signupPasswordConfirm) {
       showCustomAlert('입력 오류', '모든 필드를 입력해 주세요.');
@@ -232,36 +238,40 @@ const App = () => {
     ]);
   };
 
-  // Context
+  // Context 값
   const contextValue: AppContextType = { showCustomAlert, navigateToScreen, goBackToLogin };
 
-  // 화면 렌더링
+  // 현재 화면 렌더링 함수
   const renderCurrentScreen = () => {
     const animatedStyle = { opacity: fadeAnimation };
     switch (currentScreen) {
       case 'splash':
         return <SplashScreen onFinish={handleSplashFinish} />;
 
-    case 'login':
-      return (
-        <LoginScreen
-          email={email}
-          setEmail={setEmail}
-          password={password}
-          setPassword={setPassword}
-          loginEmailError={loginEmailError}
-          setLoginEmailError={setLoginEmailError}
-          loginPasswordError={loginPasswordError}
-          setLoginPasswordError={setLoginPasswordError}
-          fadeAnimation={fadeAnimation}
-          // 로그인 성공 시 채팅 화면으로 이동
-          onLogin={() => navigateToScreen('chat')}
-          onNavigateToSignup={() => navigateToScreen('signup')}
-          onNavigateToFindAccount={() => navigateToScreen('findAccount')}
-          onNavigateToResetPassword={() => navigateToScreen('resetPassword')}
-          showCustomAlert={showCustomAlert}
-        />
-       );
+      case 'login':
+        return (
+          <LoginScreen
+            email={email}
+            setEmail={setEmail}
+            password={password}
+            setPassword={setPassword}
+            loginEmailError={loginEmailError}
+            setLoginEmailError={setLoginEmailError}
+            loginPasswordError={loginPasswordError}
+            setLoginPasswordError={setLoginPasswordError}
+            fadeAnimation={fadeAnimation}
+            // 로그인 성공 시: 로그인 상태를 true로 설정하고 챗 화면으로 이동
+            onLogin={() => {
+              setLoggedIn(true);
+              navigateToScreen('chat');
+            }}
+            onNavigateToSignup={() => navigateToScreen('signup')}
+            onNavigateToFindAccount={() => navigateToScreen('findAccount')}
+            onNavigateToResetPassword={() => navigateToScreen('resetPassword')}
+            showCustomAlert={showCustomAlert}
+          />
+        );
+
       case 'signup':
         return (
           <Animated.View style={[{ flex: 1 }, animatedStyle]}>
@@ -415,12 +425,67 @@ const App = () => {
     }
   };
 
+  // -------- refresh 토큰으로 자동 로그인 처리 --------
+  useEffect(() => {
+    const bootstrap = async () => {
+      const refreshToken = await AsyncStorage.getItem('refreshToken');
+      if (refreshToken) {
+        try {
+          // refresh 토큰으로 새 access 토큰을 받습니다.
+          const res = await axios.post(`${API_BASE_URL}/token/refresh/`, { refresh: refreshToken });
+          await AsyncStorage.setItem('accessToken', res.data.access);
+          setLoggedIn(true);
+          // 로그인 상태면 초기 화면을 'chat'으로 설정
+          setCurrentScreen('chat');
+        } catch (err) {
+          // refresh 토큰이 만료되거나 오류가 있으면 로그인 상태를 false로
+          await AsyncStorage.removeItem('accessToken');
+          await AsyncStorage.removeItem('refreshToken');
+          setLoggedIn(false);
+          setCurrentScreen('login');
+        }
+      }
+      setLoading(false);
+    };
+
+    bootstrap();
+  }, []);
+
+  // 초기 로딩 중일 때 스플래시 화면 등을 표시
+  if (isLoading) {
+    return <SplashScreen onFinish={() => {}} />;
+  }
+
+  // 앱 렌더링
   return (
     <SafeAreaProvider>
-      <AppContext.Provider value={{ showCustomAlert, navigateToScreen, goBackToLogin }}>
+      <AppContext.Provider value={contextValue}>
         <View style={styles.container}>
           <StatusBar barStyle="light-content" backgroundColor="#0080ff" />
-          {renderCurrentScreen()}
+          {isLoggedIn ? (
+            renderCurrentScreen()
+          ) : (
+            <LoginScreen
+              email={email}
+              setEmail={setEmail}
+              password={password}
+              setPassword={setPassword}
+              loginEmailError={loginEmailError}
+              setLoginEmailError={setLoginEmailError}
+              loginPasswordError={loginPasswordError}
+              setLoginPasswordError={setLoginPasswordError}
+              fadeAnimation={fadeAnimation}
+              onLogin={() => {
+                // 로그인 성공 시
+                setLoggedIn(true);
+                navigateToScreen('chat');
+              }}
+              onNavigateToSignup={() => navigateToScreen('signup')}
+              onNavigateToFindAccount={() => navigateToScreen('findAccount')}
+              onNavigateToResetPassword={() => navigateToScreen('resetPassword')}
+              showCustomAlert={showCustomAlert}
+            />
+          )}
 
           {/* 전역 Custom Alert */}
           <CustomAlert
