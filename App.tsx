@@ -184,25 +184,6 @@ const App = () => {
   }, [resetTimerActive, resetVerificationTimer]);
 
   // 로그인
-  const handleLogin = () => {
-    setLoginEmailError('');
-    setLoginPasswordError('');
-    if (!email) {
-      setLoginEmailError('이메일을 입력해 주세요');
-      setTimeout(() => setLoginEmailError(''), 3000);
-      return;
-    }
-    if (!password) {
-      setLoginPasswordError('비밀번호를 입력해 주세요');
-      setTimeout(() => setLoginPasswordError(''), 3000);
-      return;
-    }
-    if (email === '1234@1234.com' && password === 'Ocean1234!') {
-      navigateToScreen('chat');
-    } else {
-      showCustomAlert('로그인 실패', '아이디 또는 비밀번호가 잘못되었습니다.');
-    }
-  };
 
   // 회원가입
   const handleSignup = () => {
@@ -261,28 +242,26 @@ const App = () => {
       case 'splash':
         return <SplashScreen onFinish={handleSplashFinish} />;
 
-      case 'login':
-        return (
-          <Animated.View style={[{ flex: 1 }, animatedStyle]}>
-            <LoginScreen
-              email={email}
-              setEmail={setEmail}
-              password={password}
-              setPassword={setPassword}
-              loginEmailError={loginEmailError}
-              setLoginEmailError={setLoginEmailError}
-              loginPasswordError={loginPasswordError}
-              setLoginPasswordError={setLoginPasswordError}
-              fadeAnimation={fadeAnimation}
-              onLogin={handleLogin}
-              onNavigateToSignup={() => navigateToScreen('signup')}
-              onNavigateToFindAccount={() => navigateToScreen('findAccount')}
-              onNavigateToResetPassword={() => navigateToScreen('resetPassword')}
-              showCustomAlert={showCustomAlert}
-            />
-          </Animated.View>
-        );
-
+    case 'login':
+      return (
+        <LoginScreen
+          email={email}
+          setEmail={setEmail}
+          password={password}
+          setPassword={setPassword}
+          loginEmailError={loginEmailError}
+          setLoginEmailError={setLoginEmailError}
+          loginPasswordError={loginPasswordError}
+          setLoginPasswordError={setLoginPasswordError}
+          fadeAnimation={fadeAnimation}
+          // 로그인 성공 시 채팅 화면으로 이동
+          onLogin={() => navigateToScreen('chat')}
+          onNavigateToSignup={() => navigateToScreen('signup')}
+          onNavigateToFindAccount={() => navigateToScreen('findAccount')}
+          onNavigateToResetPassword={() => navigateToScreen('resetPassword')}
+          showCustomAlert={showCustomAlert}
+        />
+       );
       case 'signup':
         return (
           <Animated.View style={[{ flex: 1 }, animatedStyle]}>

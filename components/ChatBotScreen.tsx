@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { launchImageLibrary, launchCamera, ImagePickerResponse, MediaType } from 'react-native-image-picker';
 import { KeyboardAwareFlatList } from 'react-native-keyboard-aware-scroll-view';
+import { createThread, sendMessage } from './api'; 
 
 type Message = {
   id: string;
@@ -74,7 +75,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
   const insets = useSafeAreaInsets();
   const theme = useMemo(() => (darkMode ? PALETTE.dark : PALETTE.light), [darkMode]);
   const { width: screenWidth } = Dimensions.get('window');
-
+  const [threadId, setThreadId] = useState<number | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -193,11 +194,19 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
     }
   };
 
-  const startNewChat = () => {
+  const startNewChat = async () => {
     setMessages([]);
     setChatStartTime(null);
     toggleSidebar();
-  };
+    try {
+      // "새 채팅"이라는 제목으로 쓰레드 생성
+      const response = await createThread('새 채팅');
+      setThreadId(response.data.thread_id);
+    } catch (e) {
+      console.error('새 채팅 생성 실패:', e);
+      Alert.alert('오류', '새 채팅을 시작할 수 없습니다.');
+    }
+};
 
   const two = (n: number) => n.toString().padStart(2, '0');
   const formatChatStartTime = (d: Date) =>
@@ -297,25 +306,48 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
     }, 1800);
   };
 
-  const handleSend = (text?: string) => {
-    const messageText = (text ?? input).trim();
-    if (!messageText) return;
-    ensureStartTime();
-    const now = new Date();
-    const userMsg: Message = { id: Date.now().toString(), text: messageText, sender: 'user', timestamp: now };
-    setMessages((prev) => [...prev, userMsg]);
-    setInput('');
-    setIsDiagnosing(true);
+const handleSend = async (text?: string) => {
+  const messageText = (text ?? input).trim();
+  if (!messageText) return;
+  ensureStartTime();
+  const now = new Date();
+  const userMsg: Message = { id: Date.now().toString(), text: messageText, sender: 'user', timestamp: now };
+  setMessages((prev) => [...prev, userMsg]);
+  setInput('');
+  setIsDiagnosing(true);
 
-    setTimeout(() => {
-      const botResponse = generateBotResponse(messageText);
-      typeWriter(botResponse, () => {
-        const botMsg: Message = { id: (Date.now() + 1).toString(), text: botResponse, sender: 'bot', timestamp: new Date() };
-        setMessages((prev) => [...prev, botMsg]);
-        setTypingText('');
-      });
-    }, 1200);
-  };
+  // DB에 유저 메시지 저장
+  if (threadId) {
+    try {
+      await sendMessage(threadId, messageText, 'user');
+    } catch (e) {
+      console.error('메시지 저장 실패:', e);
+    }
+  }
+
+  setTimeout(() => {
+    const botResponse = generateBotResponse(messageText);
+    typeWriter(botResponse, async () => {
+      const botMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        text: botResponse,
+        sender: 'bot',
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, botMsg]);
+      setTypingText('');
+
+      if (threadId) {
+        try {
+          await sendMessage(threadId, botResponse, 'assistant');
+        } catch (e) {
+          console.error('챗봇 응답 저장 실패:', e);
+        }
+      }
+    });
+  }, 1200);
+};
+
 
   const generateBotResponse = (msg: string): string => {
     const m = msg.toLowerCase();

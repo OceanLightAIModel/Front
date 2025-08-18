@@ -69,52 +69,40 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
     return () => backHandler.remove();
   }, [showCustomAlert]);
 
-  const handleLoginPress = async () => {
-    // 1. 입력값 검증
-    if (!email.trim()) {
-      setLoginEmailError('이메일을 입력해주세요.');
-      return;
+const handleLoginPress = async () => {
+  // ... 입력 검증 후
+  setIsLoading(true);
+  try {
+    const params = new URLSearchParams();
+    params.append('username', email.trim());
+    params.append('password', password);
+    const response = await axios.post(
+      `${API_BASE_URL}/auth/login`,
+      params.toString(),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+    );
+    if (response.status === 200 && response.data.access_token) {
+      await AsyncStorage.setItem('accessToken', response.data.access_token);
+      await AsyncStorage.setItem('refreshToken', response.data.refresh_token);
+      showCustomAlert('로그인 성공', '환영합니다!');
+      onLogin(); // 챗봇 화면으로 이동
     }
-    if (!password.trim()) {
-      setLoginPasswordError('비밀번호를 입력해주세요.');
-      return;
-    }
-
-    setLoginEmailError('');
-    setLoginPasswordError('');
-    setIsLoading(true);
-
-    try {
-      // 2. 서버에 전송할 데이터 준비 (폼 형식)
-      const formData = new URLSearchParams();
-      formData.append('username', email.trim());
-      formData.append('password', password);
-
-      // 3. 로그인 요청
-      const response = await axios.post(`${API_BASE_URL}/auth/login`, formData, {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-      });
-
-      // 4. 성공 시 토큰 저장
-      if (response.status === 200 && response.data.access_token) {
-        const { access_token, refresh_token } = response.data;
-        await AsyncStorage.setItem('accessToken', access_token);
-        await AsyncStorage.setItem('refreshToken', refresh_token);
-
-        showCustomAlert('로그인 성공', '환영합니다!');
-        onLogin();
+  } catch (error: any) {
+    let message = '로그인에 실패했습니다. 다시 시도해주세요.';
+    if (axios.isAxiosError(error) && error.response?.data?.detail) {
+      const detail = error.response.data.detail;
+      // detail이 배열이면 각 메시지를 이어붙임
+      if (Array.isArray(detail)) {
+        message = detail.map((d: any) => d.msg).join('\n');
+      } else if (typeof detail === 'string') {
+        message = detail;
       }
-    } catch (error: any) {
-      console.error('Login Error:', error.response?.data || error.message);
-      const errorMessage = error.response?.data?.detail || '로그인에 실패했습니다. 다시 시도해주세요.';
-      showCustomAlert('로그인 실패', errorMessage);
-    } finally {
-      setIsLoading(false);
     }
-  };
-
+    showCustomAlert('로그인 실패', message);
+  } finally {
+    setIsLoading(false);
+  }
+};
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0080ff" />
