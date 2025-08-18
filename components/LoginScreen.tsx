@@ -70,39 +70,40 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
   }, [showCustomAlert]);
 
 const handleLoginPress = async () => {
-  // ... 입력 검증 후
+  // 입력값 검증...
   setIsLoading(true);
   try {
-    const params = new URLSearchParams();
-    params.append('username', email.trim());
-    params.append('password', password);
+    // username과 password를 URL 인코딩된 문자열로 만듭니다.
+    const payload =
+      `username=${encodeURIComponent(email.trim())}` +
+      `&password=${encodeURIComponent(password)}`;
+
     const response = await axios.post(
       `${API_BASE_URL}/auth/login`,
-      params.toString(),
-      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+      payload,
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
     );
+
     if (response.status === 200 && response.data.access_token) {
       await AsyncStorage.setItem('accessToken', response.data.access_token);
       await AsyncStorage.setItem('refreshToken', response.data.refresh_token);
       showCustomAlert('로그인 성공', '환영합니다!');
-      onLogin(); // 챗봇 화면으로 이동
+      onLogin(); // 로그인 성공 시 챗봇 화면으로 이동
     }
   } catch (error: any) {
     let message = '로그인에 실패했습니다. 다시 시도해주세요.';
     if (axios.isAxiosError(error) && error.response?.data?.detail) {
       const detail = error.response.data.detail;
-      // detail이 배열이면 각 메시지를 이어붙임
-      if (Array.isArray(detail)) {
-        message = detail.map((d: any) => d.msg).join('\n');
-      } else if (typeof detail === 'string') {
-        message = detail;
-      }
+      if (Array.isArray(detail)) message = detail.map((d: any) => d.msg).join('\n');
+      else if (typeof detail === 'string') message = detail;
     }
     showCustomAlert('로그인 실패', message);
   } finally {
     setIsLoading(false);
   }
 };
+
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0080ff" />
@@ -140,8 +141,7 @@ const handleLoginPress = async () => {
                   blurOnSubmit={false}
                   returnKeyType="next"
                 />
-                {loginEmailError ? <Text style={styles.errorText}>{loginEmailError}</Text> : null}
-
+                  {loginEmailError ? <Text style={styles.errorText}>{loginEmailError}</Text> : null}
                 <TextInput
                   style={styles.input}
                   placeholder="비밀번호"
@@ -155,8 +155,7 @@ const handleLoginPress = async () => {
                   blurOnSubmit={false}
                   returnKeyType="done"
                 />
-                {loginPasswordError ? <Text style={styles.errorText}>{loginPasswordError}</Text> : null}
-
+                  {loginPasswordError ? <Text style={styles.errorText}>{loginPasswordError}</Text> : null}        
                 <TouchableOpacity
                   style={styles.loginButton}
                   onPress={handleLoginPress}

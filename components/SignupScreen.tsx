@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import axios from 'axios';
 import { API_BASE_URL } from './api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // 인터페이스 정의는 기존 코드와 동일하게 유지합니다.
 interface SignupScreenProps {
@@ -119,7 +120,7 @@ const SignupScreen: React.FC<SignupScreenProps> = ({
 
     try {
       // 백엔드의 회원가입 엔드포인트로 요청을 보냅니다.
-      const response = await axios.post(`http://15.164.104.195:8000/auth/signup`, {
+      const response = await axios.post(`${API_BASE_URL}/auth/signup`, {
         username: signupName,
         email: signupEmail,
         password: signupPassword,
@@ -128,6 +129,9 @@ const SignupScreen: React.FC<SignupScreenProps> = ({
 
       // 회원가입 성공: 상태 코드 201
       if (response.status === 201) {
+        // ⬇️ username 저장 추가
+        await AsyncStorage.setItem('username', signupName);
+
         Alert.alert('회원가입 성공!', '로그인 화면으로 이동합니다.');
         onBackToLogin();
       }

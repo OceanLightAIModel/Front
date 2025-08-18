@@ -35,9 +35,22 @@ export const getThreads = async () => {
   const headers = await getAuthHeaders();
   return axios.get(`${API_BASE_URL}/threads`, { headers });
 };
-
-// 특정 쓰레드의 메시지 조회 (선택사항)
+  
 export const getMessages = async (threadId: number) => {
   const headers = await getAuthHeaders();
   return axios.get(`${API_BASE_URL}/threads/${threadId}/messages`, { headers });
+};
+
+export const updateThread = async (threadId: number, newTitle: string) => {
+  const headers = await getAuthHeaders();
+  return axios.put(
+    `${API_BASE_URL}/threads/${threadId}`,
+    { thread_title: newTitle },
+    { headers },
+  );
+};
+
+export const deleteThread = async (threadId: number) => {
+  const headers = await getAuthHeaders();
+  return axios.delete(`${API_BASE_URL}/threads/${threadId}`, { headers });
 };

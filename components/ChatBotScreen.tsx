@@ -19,11 +19,19 @@ import {
   PermissionsAndroid,
   Keyboard,
 } from 'react-native';
+
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { launchImageLibrary, launchCamera, ImagePickerResponse, MediaType } from 'react-native-image-picker';
 import { KeyboardAwareFlatList } from 'react-native-keyboard-aware-scroll-view';
-import { createThread, sendMessage } from './api'; 
+import {   
+  createThread,
+  sendMessage,
+  getThreads,
+  getMessages,
+  updateThread,
+  deleteThread, } from './api'; 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type Message = {
   id: string;
@@ -86,6 +94,11 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
   const [chatStartTime, setChatStartTime] = useState<Date | null>(null);
   const [headerHeight, setHeaderHeight] = useState<number>(64);
+  const [username, setUsername] = useState<string>('');
+  const [threads, setThreads] = useState<Array<{ thread_id: number; thread_title: string }>>([]);
+  const [selectedThreadId, setSelectedThreadId] = useState<number | null>(null);
+  const [renameModalVisible, setRenameModalVisible] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
 
   // 키보드 높이(숫자) + 애니메이션 값
   const [keyboardInset, setKeyboardInset] = useState(0);
@@ -142,6 +155,16 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
   }, [messages]);
 
   useEffect(() => {
+    const loadUsername = async () => {
+      const storedUsername = await AsyncStorage.getItem('username');
+      if (storedUsername) {
+        setUsername(storedUsername);
+      }
+    };
+    loadUsername();
+  }, []);
+
+  useEffect(() => {
     const backAction = () => {
       if (sidebarVisible) {
         toggleSidebar();
@@ -166,6 +189,17 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
       };
     }
   }, [isDiagnosing, spinnerAnimation]);
+    useEffect(() => {
+      const fetchThreads = async () => {
+        try {
+          const res = await getThreads();
+          setThreads(res.data); // assume res.data is an array of threads
+        } catch (e) {
+          console.error('채팅 목록 불러오기 실패:', e);
+        }
+      };
+      fetchThreads();
+    }, []);
 
   useEffect(() => {
     if (isTyping && !isDiagnosing) {
@@ -193,20 +227,45 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
       Animated.timing(sidebarAnimation, { toValue: 0, duration: 280, useNativeDriver: false }).start();
     }
   };
+    const selectThread = async (thread: { thread_id: number; thread_title: string }) => {
+      setSelectedThreadId(thread.thread_id);
+      setThreadId(thread.thread_id);
+      setChatStartTime(null);
+      try {
+        const res = await getMessages(thread.thread_id);
+        // res.data는 백엔드에서 돌려주는 메시지 목록이라고 가정합니다.
+        setMessages(
+          res.data.map((m: any) => ({
+            id: String(m.message_id),
+            text: m.content,
+            sender: m.sender_type === 'assistant' ? 'bot' : 'user',
+            timestamp: new Date(m.created_at),
+            image: m.image_url ?? undefined,
+          })),
+        );
+      } catch (e) {
+        console.error('메시지 불러오기 실패:', e);
+        Alert.alert('오류', '채팅을 열 수 없습니다.');
+      }
+      toggleSidebar(); // 사이드바 닫기
+    };
 
   const startNewChat = async () => {
     setMessages([]);
     setChatStartTime(null);
     toggleSidebar();
     try {
-      // "새 채팅"이라는 제목으로 쓰레드 생성
       const response = await createThread('새 채팅');
-      setThreadId(response.data.thread_id);
+      const createdThread = response.data;
+      setThreadId(createdThread.thread_id);
+      setThreads((prev) => [...prev, createdThread]); // 목록에 새 항목 추가
+      setSelectedThreadId(createdThread.thread_id);
     } catch (e) {
       console.error('새 채팅 생성 실패:', e);
       Alert.alert('오류', '새 채팅을 시작할 수 없습니다.');
     }
-};
+  };
+  
 
   const two = (n: number) => n.toString().padStart(2, '0');
   const formatChatStartTime = (d: Date) =>
@@ -530,6 +589,61 @@ const handleSend = async (text?: string) => {
 
               <View style={styles.sidebarSection}>
                 <Text style={[styles.sectionTitle, { color: theme.subtext }]}>내 채팅</Text>
+                {threads.map((thread) => (
+  <View key={thread.thread_id} style={{ flexDirection: 'row', alignItems: 'center' }}>
+    {/* 채팅을 눌렀을 때 해당 쓰레드를 열도록 설정 */}
+    <TouchableOpacity
+      style={{ flex: 1, paddingVertical: 10, paddingHorizontal: 20 }}
+      onPress={() => selectThread(thread)}
+    >
+      <Text style={{ color: theme.text }}>{thread.thread_title}</Text>
+    </TouchableOpacity>
+
+    {/* 햄버거 메뉴: 이름 변경/삭제 메뉴를 띄우는 버튼 */}
+    <TouchableOpacity
+      style={{ paddingHorizontal: 16, paddingVertical: 10 }}
+      onPress={() => {
+        Alert.alert(
+          '채팅 옵션',
+          '',
+          [
+            {
+              text: '이름 변경',
+              onPress: () => {
+                setNewTitle(thread.thread_title);
+                setSelectedThreadId(thread.thread_id);
+                setRenameModalVisible(true);
+              },
+            },
+            {
+              text: '삭제',
+              onPress: async () => {
+                try {
+                  await deleteThread(thread.thread_id);
+                  setThreads((prev) => prev.filter((t) => t.thread_id !== thread.thread_id));
+                  if (selectedThreadId === thread.thread_id) {
+                    setMessages([]);
+                    setThreadId(null);
+                    setSelectedThreadId(null);
+                  }
+                } catch (e) {
+                  console.error('삭제 실패:', e);
+                  Alert.alert('오류', '채팅을 삭제할 수 없습니다.');
+                }
+              },
+              style: 'destructive',
+            },
+            { text: '취소', style: 'cancel' },
+          ],
+          { cancelable: true },
+        );
+      }}
+    >
+      <MaterialIcons name="more-horiz" size={20} color={theme.subtext} />
+    </TouchableOpacity>
+  </View>
+))}
+
               </View>
             </ScrollView>
 
@@ -649,6 +763,43 @@ const handleSend = async (text?: string) => {
       {renderSidebar()}
       {renderImagePickerModal()}
       {renderLogoutModal()}
+      {/* 이름 변경 모달 */}
+<Modal visible={renameModalVisible} transparent animationType="fade" onRequestClose={() => setRenameModalVisible(false)}>
+  <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
+    <View style={{ width: '80%', backgroundColor: '#fff', padding: 20, borderRadius: 8 }}>
+      <Text style={{ fontSize: 16, marginBottom: 10 }}>채팅 이름 수정</Text>
+      <TextInput
+        value={newTitle}
+        onChangeText={setNewTitle}
+        placeholder="새로운 이름"
+        style={{ borderWidth: 1, borderColor: '#ccc', borderRadius: 5, padding: 8, marginBottom: 10 }}
+      />
+      <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
+        <TouchableOpacity onPress={() => setRenameModalVisible(false)} style={{ marginRight: 10 }}>
+          <Text style={{ color: '#999' }}>취소</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={async () => {
+            if (!selectedThreadId) return;
+            try {
+              await updateThread(selectedThreadId, newTitle);
+              setThreads((prev) =>
+                prev.map((t) => (t.thread_id === selectedThreadId ? { ...t, thread_title: newTitle } : t)),
+              );
+              setRenameModalVisible(false);
+            } catch (e) {
+              console.error('이름 변경 실패:', e);
+              Alert.alert('오류', '이름을 수정할 수 없습니다.');
+            }
+          }}
+        >
+          <Text style={{ color: '#0080ff' }}>저장</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  </View>
+</Modal>
+
 
       {/* 헤더 */}
       <View
@@ -670,7 +821,9 @@ const handleSend = async (text?: string) => {
         <View style={styles.headerRight}>
           <Text style={[styles.welcomeText, { color: theme.subtext }]}>
             환영합니다{'\n'}
-            <Text style={[styles.teamText, { color: theme.subtext }]}>[오션라이프팀]님</Text>
+          <Text style={[styles.teamText, { color: theme.subtext }]}>
+            {username ? `${username}님` : '[user]님'}
+          </Text>
           </Text>
           <TouchableOpacity
             style={[styles.profileIconContainer, { backgroundColor: darkMode ? '#2B2F33' : '#F0F2F4' }]}
