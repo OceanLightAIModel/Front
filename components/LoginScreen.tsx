@@ -17,9 +17,9 @@ import {
   BackHandler,
   ActivityIndicator,
 } from 'react-native';
-import SignupScreen from './SignupScreen'; // 회원가입 화면
-import FindAccountScreen from './FindAccountScreen'; // 계정 찾기 화면
-import ResetPasswordScreen from './ResetPasswordScreen'; // 비밀번호 찾기 화면
+import SignupScreen from './SignupScreen';
+import FindAccountScreen from './FindAccountScreen';
+import ResetPasswordScreen from './ResetPasswordScreen';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
 interface LoginScreenProps {
@@ -60,8 +60,9 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
   showCustomAlert,
 }) => {
   const [isLoading, setIsLoading] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false); // 로그인 유지하기 체크 상태
-  const [showPassword, setShowPassword] = useState(false); // 비밀번호 표시/숨김 상태
+  const [rememberMe, setRememberMe] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true); // NEW: 토큰 확인 중 여부
 
   // 백 버튼으로 앱 종료 확인
   useEffect(() => {
@@ -81,11 +82,18 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
     const checkLoggedIn = async () => {
       const token = await AsyncStorage.getItem('accessToken');
       if (token) {
-        onLogin();
+        onLogin();          // 토큰이 있으면 로그인 화면을 거치지 않고 바로 이동
+      } else {
+        setCheckingAuth(false); // 토큰이 없으면 로그인 화면을 표시
       }
     };
     checkLoggedIn();
   }, []);
+
+  // NEW: 토큰 확인이 끝나기 전엔 아무것도 렌더링하지 않음
+  if (checkingAuth) {
+    return null;
+  }
 
   // 로그인 버튼 클릭 처리
   const handleLoginPress = async () => {
@@ -93,10 +101,9 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
       showCustomAlert('로그인 실패', '이메일과 비밀번호를 모두 입력해주세요.');
       return;
     }
-
     setIsLoading(true);
     try {
-      // FastAPI의 OAuth2PasswordRequestForm은 username, password를 폼데이터로 전송
+      // FastAPI OAuth2PasswordRequestForm: username/email + password를 form-urlencoded로 전송
       const formData = new URLSearchParams();
       formData.append('username', email.trim());
       formData.append('password', password);
@@ -110,7 +117,6 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
         }
       );
 
-      // 로그인 성공 시 토큰 저장
       const { access_token, refresh_token } = response.data;
       if (rememberMe) {
         await AsyncStorage.setItem('accessToken', access_token);
@@ -175,7 +181,6 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
                 />
                 {loginEmailError ? <Text style={styles.errorText}>{loginEmailError}</Text> : null}
 
-                {/* 비밀번호 입력창 + 눈 아이콘 */}
                 <View style={{ position: 'relative', marginBottom: 15 }}>
                   <TextInput
                     style={[styles.input, { paddingRight: 40, marginBottom: 0 }]}
@@ -260,7 +265,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
   );
 };
 
-// 스타일 정의
+// 스타일 정의 (변경 없음)
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8f9fa' },
   keyboardContainer: { flex: 1 },

@@ -1,3 +1,6 @@
+import { getUserProfile, updateUserPrefs, deleteUserAccount } from './api';
+
+const [profileEmail, setProfileEmail] = useState('');
 // components/SettingsScreen.tsx
 import React, { useState, useEffect } from 'react';
 import {

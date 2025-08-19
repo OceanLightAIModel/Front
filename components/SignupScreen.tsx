@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import axios from 'axios';
 import { API_BASE_URL } from './api';
-
+import AsyncStorage from '@react-native-async-storage/async-storage';
 interface SignupScreenProps {
   signupName: string;
   setSignupName: (name: string) => void;
@@ -103,6 +103,7 @@ const SignupScreen: React.FC<SignupScreenProps> = ({
 
         // 회원가입 성공: 상태 코드 201
         if (response.status === 201) {
+          await AsyncStorage.setItem('username', signupName);  // 새 사용자명 저장
           Alert.alert('회원가입 성공!', '로그인 화면으로 이동합니다.');
           onBackToLogin();
         }

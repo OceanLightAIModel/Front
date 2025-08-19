@@ -11,7 +11,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-
+import AsyncStorage from '@react-native-async-storage/async-storage';
 // 컴포넌트 imports
 import PrivacyPolicyScreen from './components/PrivacyPolicyScreen';
 import SplashScreen from './components/SplashScreen';
@@ -412,13 +412,34 @@ const App = () => {
 
   // -------- refresh 토큰으로 자동 로그인 처리 --------
   // 스플래시 화면 1.5초 후 자동 종료 (API/토큰 없이)
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setLoading(false);
-      setCurrentScreen('login');
-    }, 1500);
-    return () => clearTimeout(timer);
-  }, []);
+    useEffect(() => {
+      const initialize = async () => {
+        // 스플래시를 1.5초 동안 표시
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        try {
+          // AsyncStorage에서 토큰 조회
+          const token = await AsyncStorage.getItem('accessToken');
+          // 스플래시 종료
+          setLoading(false);
+          if (token) {
+            // 토큰이 있으면 로그인한 것으로 간주하고 챗봇 화면으로 이동
+            setLoggedIn(true);
+            setCurrentScreen('chat');
+          } else {
+            // 토큰이 없으면 로그인 화면으로 이동
+            setLoggedIn(false);
+            setCurrentScreen('login');
+          }
+        } catch (e) {
+          // 오류 발생 시 로그인 화면으로 이동
+          setLoading(false);
+          setLoggedIn(false);
+          setCurrentScreen('login');
+        }
+      };
+      initialize();
+    }, []);
 
   // 초기 로딩 중일 때 스플래시 화면 표시
   if (isLoading) {

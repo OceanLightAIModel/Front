@@ -120,29 +120,29 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
   }, [messages]);
 
     useEffect(() => {
-      const fetchProfile = async () => {
-        try {
-          const res = await getUserProfile();
-          // 백엔드 응답에 따라 필드명을 확인하세요.
-          const name = res.data.username || res.data.nickname || res.data.userName;
-          if (name) {
-            setUsername(name);
-            // 로컬에도 저장
-            await AsyncStorage.setItem('username', name);
-          } else {
-            // 응답에 이름이 없다면 저장된 값 사용
+        const fetchName = async () => {
+          try {
+            // 1단계: 로컬에 저장된 이름이 있다면 우선 설정
             const savedName = await AsyncStorage.getItem('username');
-            if (savedName) setUsername(savedName);
+            if (savedName) {
+              setUsername(savedName);
+            }
+
+            // 2단계: 서버에서 프로필을 가져와 이름을 최신화
+            const res = await getUserProfile();
+            // 백엔드 응답에 따라 필드명을 확인하세요.
+            const name = res.data?.username || res.data?.nickname || res.data?.userName;
+            if (name) {
+              setUsername(name);
+              await AsyncStorage.setItem('username', name); // 로컬에도 저장
+            }
+          } catch (e) {
+            console.error('사용자 정보 불러오기 실패:', e);
+            // 서버 호출에 실패해도 savedName이 있으면 이미 설정되어 있으므로 추가 조치 불필요
           }
-        } catch (e) {
-          console.error('사용자 정보 불러오기 실패:', e);
-          // API 호출 실패 시 로컬 저장값으로 대체
-          const savedName = await AsyncStorage.getItem('username');
-          if (savedName) setUsername(savedName);
-        }
-      };
-      fetchProfile();
-    }, []);
+        };
+        fetchName();
+      }, []);
 
 
   useEffect(() => {
@@ -379,9 +379,10 @@ const handleSend = async (text?: string) => {
 
       if (threadId) {
         try {
-          await sendMessage(threadId, botResponse, 'assistant');
+          const updated = await getThreads();
+          setThreads(updated.data);
         } catch (e) {
-          console.error('챗봇 응답 저장 실패:', e);
+          console.error('스레드 목록 갱신 실패:', e);
         }
       }
     });
@@ -601,7 +602,9 @@ const handleSend = async (text?: string) => {
               onPress: async () => {
                 try {
                   await deleteThread(thread.thread_id);
-                  setThreads((prev) => prev.filter((t) => t.thread_id !== thread.thread_id));
+                  // 삭제 후 서버에서 새 목록 불러오기
+                  const updated = await getThreads();
+                  setThreads(updated.data);
                   if (selectedThreadId === thread.thread_id) {
                     setMessages([]);
                     setThreadId(null);
