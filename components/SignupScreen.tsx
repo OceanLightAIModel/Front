@@ -15,9 +15,7 @@ import {
 } from 'react-native';
 import axios from 'axios';
 import { API_BASE_URL } from './api';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// 인터페이스 정의는 기존 코드와 동일하게 유지합니다.
 interface SignupScreenProps {
   signupName: string;
   setSignupName: (name: string) => void;
@@ -27,27 +25,11 @@ interface SignupScreenProps {
   setSignupPassword: (password: string) => void;
   signupPasswordConfirm: string;
   setSignupPasswordConfirm: (password: string) => void;
-  signupPhone: string;
-  setSignupPhone: (phone: string) => void;
-  verificationCode: string;
-  setVerificationCode: (code: string) => void;
-  isCodeSent: boolean;
-  setIsCodeSent: (sent: boolean) => void;
-  verificationTimer: number;
-  setVerificationTimer: (timer: number) => void;
-  timerActive: boolean;
-  setTimerActive: (active: boolean) => void;
-  formatPhoneNumber: (text: string) => string;
-  onSignup: () => void;
+  onSignup: () => void;       // 사용되지 않지만 props 구조 유지
   onBackToLogin: () => void;
 }
 
-/**
- * 회원가입 화면 컴포넌트
- *
- * 백엔드의 `/auth/signup` 엔드포인트로 POST 요청을 보내 사용자 계정을 생성합니다.
- * 비밀번호 규칙 검사와 입력값 검증을 수행한 뒤 서버와 통신합니다.
- */
+
 const SignupScreen: React.FC<SignupScreenProps> = ({
   signupName,
   setSignupName,
@@ -57,21 +39,9 @@ const SignupScreen: React.FC<SignupScreenProps> = ({
   setSignupPassword,
   signupPasswordConfirm,
   setSignupPasswordConfirm,
-  signupPhone,
-  setSignupPhone,
-  verificationCode,
-  setVerificationCode,
-  isCodeSent,
-  setIsCodeSent,
-  verificationTimer,
-  setVerificationTimer,
-  timerActive,
-  setTimerActive,
-  formatPhoneNumber,
-  onSignup, // 사용되지 않지만 props 구조 유지
+  onSignup,        // 사용되지 않지만 props 구조 유지
   onBackToLogin,
 }) => {
-  // 뒤로가기 버튼 처리: 회원가입 화면에서 뒤로가면 로그인 화면으로 이동합니다.
   useEffect(() => {
     const backAction = () => {
       onBackToLogin();
@@ -88,9 +58,9 @@ const SignupScreen: React.FC<SignupScreenProps> = ({
    * - 비밀번호 확인 일치 여부 검사
    * - 백엔드에 POST 요청으로 사용자 정보 전송
    */
-  const handleSignupPress = async () => {
-    const pwd = signupPassword ?? '';
-    const confirm = signupPasswordConfirm ?? '';
+    const handleSignupPress = async () => {
+      const pwd = signupPassword ?? '';
+      const confirm = signupPasswordConfirm ?? '';
 
     const hasUpper = /[A-Z]/.test(pwd);
     const hasNumber = /\d/.test(pwd);
@@ -118,45 +88,36 @@ const SignupScreen: React.FC<SignupScreenProps> = ({
       return;
     }
 
-    try {
-      // 백엔드의 회원가입 엔드포인트로 요청을 보냅니다.
-      const response = await axios.post(`${API_BASE_URL}/auth/signup`, {
-        username: signupName,
-        email: signupEmail,
-        password: signupPassword,
-        phone_number: signupPhone,
-      });
+      try {
+        const response = await axios.post(
+          `${API_BASE_URL}/auth/signup`,
+          {
+            username: signupName,
+            email: signupEmail,
+            password: signupPassword,
+          },
+          {
+            validateStatus: (status) => status < 400,
+          }
+        );
 
-      // 회원가입 성공: 상태 코드 201
-      if (response.status === 201) {
-        // ⬇️ username 저장 추가
-        await AsyncStorage.setItem('username', signupName);
-
-        Alert.alert('회원가입 성공!', '로그인 화면으로 이동합니다.');
-        onBackToLogin();
-      }
-    } catch (error: unknown) {
+        // 회원가입 성공: 상태 코드 201
+        if (response.status === 201) {
+          Alert.alert('회원가입 성공!', '로그인 화면으로 이동합니다.');
+          onBackToLogin();
+        }
+    } catch (error: any) {
+      // axios 오류일 때
       if (axios.isAxiosError(error) && error.response) {
-        console.error('Signup error:', error.response.data);
-        Alert.alert('회원가입 실패', error.response.data.detail || '알 수 없는 오류가 발생했습니다.');
+      const detailMsg =
+          (error.response.data && (error.response.data.detail || error.response.data.message)) ||
+          '알 수 없는 오류가 발생했습니다.';
+        Alert.alert('회원가입 실패', detailMsg);
       } else {
-        console.error('An unexpected error occurred:', error);
+        // 네트워크 오류 등 예외 처리
         Alert.alert('회원가입 실패', '서버에 연결할 수 없습니다. 네트워크를 확인해주세요.');
       }
     }
-  };
-
-  // 전화번호에서 숫자만 추출하여 11자리인지 확인합니다.
-  const digitsOnly = signupPhone.replace(/\D/g, '');
-  const isPhoneValid = digitsOnly.length === 11;
-
-  // 인증코드 요청 버튼 클릭 시 실행
-  const handleRequestCode = () => {
-    if (!isPhoneValid || timerActive) return;
-    setIsCodeSent(true);
-    setVerificationTimer(180); // 3분 타이머 시작
-    setTimerActive(true);
-    // 실제 앱에서는 여기서 SMS API를 호출해 인증번호를 전송합니다.
   };
 
   return (
@@ -222,51 +183,6 @@ const SignupScreen: React.FC<SignupScreenProps> = ({
                   secureTextEntry
                   blurOnSubmit={false}
                   returnKeyType="next"
-                />
-                <View style={styles.phoneVerificationContainer}>
-                  <TextInput
-                    style={[styles.input, styles.phoneInput]}
-                    placeholder="전화번호"
-                    placeholderTextColor="#999"
-                    value={signupPhone}
-                    onChangeText={(text) => setSignupPhone(formatPhoneNumber(text))}
-                    keyboardType="number-pad"
-                    maxLength={13}
-                    blurOnSubmit={false}
-                    returnKeyType="next"
-                  />
-                    <TouchableOpacity
-                      style={[styles.verifyButton, (!isPhoneValid || timerActive) && styles.verifyButtonDisabled]}
-                      onPress={handleRequestCode}
-                      disabled={!isPhoneValid || timerActive}
-                      accessibilityState={{ disabled: !isPhoneValid || timerActive }}
-                    >
-                      <Text style={styles.verifyButtonText}>
-                        {timerActive
-                          ? `${Math.floor(verificationTimer / 60)}:${(verificationTimer % 60).toString().padStart(2, '0')}`
-                          : isCodeSent
-                          ? '재전송'
-                          : '인증요청'}
-                      </Text>
-                    </TouchableOpacity>
-                </View>
-                {isCodeSent && (
-                  <View style={styles.verificationInfo}>
-                    <Text style={styles.verificationSentText}>✓ 인증번호가 발송되었습니다</Text>
-                    <Text style={styles.tempCodeText}>임시 인증번호: 1234</Text>
-                  </View>
-                )}
-                <TextInput
-                  style={[styles.input, !isCodeSent && styles.hiddenInput]}
-                  placeholder="인증번호 입력"
-                  placeholderTextColor="#999"
-                  value={verificationCode}
-                  onChangeText={setVerificationCode}
-                  keyboardType="number-pad"
-                  blurOnSubmit={false}
-                  returnKeyType="done"
-                  editable={isCodeSent}
-                  pointerEvents={isCodeSent ? 'auto' : 'none'}
                 />
                 <View style={styles.loginPromptContainer}>
                   <Text style={styles.loginPrompt}>이미 계정이 있다면</Text>
@@ -365,56 +281,6 @@ const styles = StyleSheet.create({
     marginTop: -10,
     marginBottom: 10,
     paddingHorizontal: 5,
-  },
-  phoneVerificationContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 15,
-  },
-  phoneInput: {
-    flex: 1,
-    height: 50,
-    marginTop: 13,
-    marginRight: 10,
-  },
-  verifyButton: {
-    height: 50,
-    backgroundColor: '#0080ff',
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    minWidth: 70,
-  },
-  verifyButtonDisabled: {
-    backgroundColor: '#ccc',
-  },
-  verifyButtonText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    lineHeight: 14,
-  },
-  verificationInfo: {
-    marginBottom: 15,
-    paddingHorizontal: 5,
-  },
-  verificationSentText: {
-    fontSize: 14,
-    color: '#28a745',
-    marginBottom: 5,
-    fontWeight: '500',
-  },
-  tempCodeText: {
-    fontSize: 14,
-    color: '#0080ff',
-    fontWeight: '600',
-  },
-  hiddenInput: {
-    height: 0,
-    marginBottom: 0,
-    opacity: 0,
   },
   loginPromptContainer: {
     flexDirection: 'row',

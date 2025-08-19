@@ -74,7 +74,7 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
 
     const timeout = setTimeout(() => {
       onFinish?.();
-    }, 4000);
+    }, 2200);
 
     return () => clearTimeout(timeout);
   }, [fadeAI, bouncePetCareX, bouncePetCareY, bouncePetCareOpacity, onFinish]);

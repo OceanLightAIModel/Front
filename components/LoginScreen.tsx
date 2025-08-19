@@ -1,4 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import axios from 'axios';
+import { API_BASE_URL } from './api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
   Text,
@@ -14,10 +17,11 @@ import {
   BackHandler,
   ActivityIndicator,
 } from 'react-native';
-import axios from 'axios';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_BASE_URL } from './api';
+import SignupScreen from './SignupScreen'; // 회원가입 화면
+import FindAccountScreen from './FindAccountScreen'; // 계정 찾기 화면
+import ResetPasswordScreen from './ResetPasswordScreen'; // 비밀번호 찾기 화면
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+
 interface LoginScreenProps {
   email: string;
   setEmail: (email: string) => void;
@@ -39,15 +43,6 @@ interface LoginScreenProps {
   ) => void;
 }
 
-// (선택) 로그인 성공 시 토큰/username 저장 함수 – 호출하지 않으면 그대로 두셔도 됩니다.
-const handleLoginSuccess = async (response: any) => {
-  const { access, refresh, username } = response.data;
-  await AsyncStorage.setItem('accessToken', access);
-  await AsyncStorage.setItem('refreshToken', refresh);
-  await AsyncStorage.setItem('username', username);
-  // 이후 화면 이동 등 처리...
-};
-
 const LoginScreen: React.FC<LoginScreenProps> = ({
   email,
   setEmail,
@@ -66,6 +61,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
 }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [rememberMe, setRememberMe] = useState(false); // 로그인 유지하기 체크 상태
+  const [showPassword, setShowPassword] = useState(false); // 비밀번호 표시/숨김 상태
 
   // 백 버튼으로 앱 종료 확인
   useEffect(() => {
@@ -80,42 +76,61 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
     return () => backHandler.remove();
   }, [showCustomAlert]);
 
+  // 앱 시작 시 저장된 토큰이 있으면 자동 로그인
+  useEffect(() => {
+    const checkLoggedIn = async () => {
+      const token = await AsyncStorage.getItem('accessToken');
+      if (token) {
+        onLogin();
+      }
+    };
+    checkLoggedIn();
+  }, []);
+
+  // 로그인 버튼 클릭 처리
   const handleLoginPress = async () => {
-    // 입력값 검증…
+    if (!email.trim() || !password) {
+      showCustomAlert('로그인 실패', '이메일과 비밀번호를 모두 입력해주세요.');
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const payload =
-        `username=${encodeURIComponent(email.trim())}` +
-        `&password=${encodeURIComponent(password)}`;
+      // FastAPI의 OAuth2PasswordRequestForm은 username, password를 폼데이터로 전송
+      const formData = new URLSearchParams();
+      formData.append('username', email.trim());
+      formData.append('password', password);
 
       const response = await axios.post(
         `${API_BASE_URL}/auth/login`,
-        payload,
-        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+        formData.toString(),
+        {
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          validateStatus: (status) => status < 400,
+        }
       );
 
-        if (response.status === 200 && response.data.access_token) {
-          if (rememberMe) {
-            // 로그인 유지하기가 체크되었을 때만 토큰 저장
-            await AsyncStorage.setItem('accessToken', response.data.access_token);
-            await AsyncStorage.setItem('refreshToken', response.data.refresh_token);
-          } else {
-            // 체크하지 않았으면 토큰을 저장하지 않음
-            await AsyncStorage.removeItem('accessToken');
-            await AsyncStorage.removeItem('refreshToken');
-          }
-          showCustomAlert('로그인 성공', '환영합니다!');
-          onLogin();
-        }
-
-    } catch (error: any) {
-      let message = '로그인에 실패했습니다. 다시 시도해주세요.';
-      if (axios.isAxiosError(error) && error.response?.data?.detail) {
-        const detail = error.response.data.detail;
-        if (Array.isArray(detail)) message = detail.map((d: any) => d.msg).join('\n');
-        else if (typeof detail === 'string') message = detail;
+      // 로그인 성공 시 토큰 저장
+      const { access_token, refresh_token } = response.data;
+      if (rememberMe) {
+        await AsyncStorage.setItem('accessToken', access_token);
+        await AsyncStorage.setItem('refreshToken', refresh_token);
+      } else {
+        await AsyncStorage.removeItem('accessToken');
+        await AsyncStorage.removeItem('refreshToken');
       }
-      showCustomAlert('로그인 실패', message);
+
+      showCustomAlert('로그인 성공', 'AI 챗 화면으로 이동합니다.');
+      onLogin();
+    } catch (error: any) {
+      if (axios.isAxiosError(error) && error.response) {
+        const msg =
+          (error.response.data?.detail || error.response.data?.message) ??
+          '이메일 또는 비밀번호가 올바르지 않습니다.';
+        showCustomAlert('로그인 실패', msg);
+      } else {
+        showCustomAlert('로그인 실패', '서버에 연결할 수 없습니다.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -160,30 +175,51 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
                 />
                 {loginEmailError ? <Text style={styles.errorText}>{loginEmailError}</Text> : null}
 
-                <TextInput
-                  style={styles.input}
-                  placeholder="비밀번호"
-                  placeholderTextColor="#999"
-                  value={password}
-                  onChangeText={(text) => {
-                    setPassword(text);
-                    if (loginPasswordError) setLoginPasswordError('');
-                  }}
-                  secureTextEntry
-                  blurOnSubmit={false}
-                  returnKeyType="done"
-                />
+                {/* 비밀번호 입력창 + 눈 아이콘 */}
+                <View style={{ position: 'relative', marginBottom: 15 }}>
+                  <TextInput
+                    style={[styles.input, { paddingRight: 40, marginBottom: 0 }]}
+                    placeholder="비밀번호"
+                    placeholderTextColor="#999"
+                    value={password}
+                    onChangeText={(text) => {
+                      setPassword(text);
+                      if (loginPasswordError) setLoginPasswordError('');
+                    }}
+                    secureTextEntry={!showPassword}
+                    blurOnSubmit={false}
+                    returnKeyType="done"
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowPassword((prev) => !prev)}
+                    style={{
+                      position: 'absolute',
+                      right: 15,
+                      top: 12,
+                      width: 24,
+                      height: 24,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <MaterialIcons
+                      name={showPassword ? 'visibility-off' : 'visibility'}
+                      size={22}
+                      color="#9c9c9c"
+                    />
+                  </TouchableOpacity>
+                </View>
                 {loginPasswordError ? <Text style={styles.errorText}>{loginPasswordError}</Text> : null}
 
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
                   <TouchableOpacity
-                    onPress={() => setRememberMe(prev => !prev)}
+                    onPress={() => setRememberMe((prev) => !prev)}
                     style={{ flexDirection: 'row', alignItems: 'center' }}
                   >
                     <MaterialIcons
                       name={rememberMe ? 'check-box' : 'check-box-outline-blank'}
                       size={20}
-                      color="#0080ff"
+                      color="#9c9c9cd8"
                     />
                     <Text style={{ marginLeft: 6, color: '#333', fontSize: 14 }}>로그인 유지하기</Text>
                   </TouchableOpacity>

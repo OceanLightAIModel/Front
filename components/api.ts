@@ -88,3 +88,7 @@ export const getUserProfile = async () => {
 export const deleteThread = async (threadId: number) => {
   return api.delete(`/threads/${threadId}`);
 };
+
+
+
+

@@ -1,8 +1,5 @@
 // App.tsx
 import React, { useEffect, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
-import { API_BASE_URL } from './components/api';
 import {
   View,
   StatusBar,
@@ -54,10 +51,9 @@ export const useAppContext = () => {
 };
 
 const App = () => {
-  // refresh 토큰을 이용한 자동 로그인 상태
-  const [isLoading, setLoading] = useState(true); // 초기 로딩 여부
-  const [isLoggedIn, setLoggedIn] = useState(false); // 로그인 여부
-  // 화면 전환을 위한 상태 (ScreenName 타입을 사용)
+  // 초기 로딩 여부 (스플래시)
+  const [isLoading, setLoading] = useState(true);
+  const [isLoggedIn, setLoggedIn] = useState(false);
   const [currentScreen, setCurrentScreen] = useState<ScreenName>('splash');
 
 
@@ -132,14 +128,19 @@ const App = () => {
 
   // 화면 전환(페이드)
     const navigateToScreen = (nextScreen: ScreenName) => {
-      if (isAnimating) return;
-      setIsAnimating(true);
-      Animated.timing(fadeAnimation, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
-        setCurrentScreen(nextScreen); // ← 여기!
-        Animated.timing(fadeAnimation, { toValue: 1, duration: 200, useNativeDriver: true }).start(() => {
-          setIsAnimating(false);
-        });
+    // isAnimating 상태와 관계없이 강제로 화면 전환 (버튼 클릭 시 화면이 안 넘어가는 현상 방지)
+    console.log('navigateToScreen 호출:', nextScreen);
+    setIsAnimating(true);
+    Animated.timing(fadeAnimation, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
+      setCurrentScreen(nextScreen);
+      console.log('currentScreen 변경됨:', nextScreen);
+      Animated.timing(fadeAnimation, { toValue: 1, duration: 200, useNativeDriver: true }).start(() => {
+        setIsAnimating(false);
       });
+    });
+    setTimeout(() => {
+      setIsAnimating(false);
+    }, 1000);
     };
 
   // 로그인으로 돌아가기(상태 초기화)
@@ -228,22 +229,6 @@ const App = () => {
       showCustomAlert('비밀번호 오류', '비밀번호는 최소 8자 이상이어야 합니다.');
       return;
     }
-    if (!signupPhone) {
-      showCustomAlert('입력 오류', '전화번호를 입력해 주세요.');
-      return;
-    }
-    if (!isCodeSent) {
-      showCustomAlert('인증 오류', '인증번호를 먼저 요청해 주세요.');
-      return;
-    }
-    if (!verificationCode) {
-      showCustomAlert('입력 오류', '인증번호를 입력해 주세요.');
-      return;
-    }
-    if (verificationCode !== '123456') {
-      showCustomAlert('인증 실패', '인증번호가 올바르지 않습니다.');
-      return;
-    }
     showCustomAlert('회원가입 완료', '회원가입이 성공적으로 완료되었습니다.', [
       { text: '확인', onPress: () => goBackToLogin() },
     ]);
@@ -295,17 +280,6 @@ const App = () => {
               setSignupPassword={setSignupPassword}
               signupPasswordConfirm={signupPasswordConfirm}
               setSignupPasswordConfirm={setSignupPasswordConfirm}
-              signupPhone={signupPhone}
-              setSignupPhone={setSignupPhone}
-              verificationCode={verificationCode}
-              setVerificationCode={setVerificationCode}
-              isCodeSent={isCodeSent}
-              setIsCodeSent={setIsCodeSent}
-              verificationTimer={verificationTimer}
-              setVerificationTimer={setVerificationTimer}
-              timerActive={timerActive}
-              setTimerActive={setTimerActive}
-              formatPhoneNumber={formatPhoneNumber}
               onSignup={handleSignup}
               onBackToLogin={goBackToLogin}
             />
@@ -437,36 +411,13 @@ const App = () => {
   };
 
   // -------- refresh 토큰으로 자동 로그인 처리 --------
+  // 스플래시 화면 1.5초 후 자동 종료 (API/토큰 없이)
   useEffect(() => {
-    const bootstrap = async () => {
-      const refreshToken = await AsyncStorage.getItem('refreshToken');
-      if (refreshToken) {
-        try {
-          // refresh 토큰으로 새 access 토큰을 받습니다.
-          const res = await axios.post(`${API_BASE_URL}/token/refresh/`, { refresh: refreshToken });
-          await AsyncStorage.setItem('accessToken', res.data.access);
-          setLoggedIn(true);
-          // 로그인 상태면 초기 화면을 'chat'으로 설정
-          setCurrentScreen('chat');
-        } catch (err) {
-          // refresh 토큰이 만료되거나 오류가 있으면 로그인 상태를 false로
-          await AsyncStorage.removeItem('accessToken');
-          await AsyncStorage.removeItem('refreshToken');
-          setLoggedIn(false);
-          setCurrentScreen('login');
-        }
-      } else {
-        // refreshToken이 없으면 로그인 화면으로
-        setLoggedIn(false);
-        setCurrentScreen('login');
-      }
-      // API 요청이 끝난 뒤에만 스플래시 종료
-      setTimeout(() => {
-        setLoading(false);
-      }, 4000); // 3초 후 스플래시 종료 (딜레이는 필요에 따라 조정)
-    };
-
-    bootstrap();
+    const timer = setTimeout(() => {
+      setLoading(false);
+      setCurrentScreen('login');
+    }, 1500);
+    return () => clearTimeout(timer);
   }, []);
 
   // 초기 로딩 중일 때 스플래시 화면 표시
@@ -480,31 +431,7 @@ const App = () => {
       <AppContext.Provider value={contextValue}>
         <View style={styles.container}>
           <StatusBar barStyle="light-content" backgroundColor="#0080ff" />
-          {isLoggedIn ? (
-            renderCurrentScreen()
-          ) : (
-            <LoginScreen
-              email={email}
-              setEmail={setEmail}
-              password={password}
-              setPassword={setPassword}
-              loginEmailError={loginEmailError}
-              setLoginEmailError={setLoginEmailError}
-              loginPasswordError={loginPasswordError}
-              setLoginPasswordError={setLoginPasswordError}
-              fadeAnimation={fadeAnimation}
-              onLogin={() => {
-                // 로그인 성공 시
-                setLoggedIn(true);
-                navigateToScreen('chat');
-              }}
-              onNavigateToSignup={() => navigateToScreen('signup')}
-              onNavigateToFindAccount={() => navigateToScreen('findAccount')}
-              onNavigateToResetPassword={() => navigateToScreen('resetPassword')}
-              showCustomAlert={showCustomAlert}
-            />
-          )}
-
+          {renderCurrentScreen()}
           {/* 전역 Custom Alert */}
           <CustomAlert
             visible={customAlert.visible}

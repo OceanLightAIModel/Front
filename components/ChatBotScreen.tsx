@@ -123,17 +123,27 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
       const fetchProfile = async () => {
         try {
           const res = await getUserProfile();
-          // res.data.username, res.data.nickname 등 백엔드 응답에 맞춰 수정하세요.
-          const name = res.data.username || res.data.nickname;
-          setUsername(name);
-          // 로컬 저장도 필요하다면 저장
-          await AsyncStorage.setItem('username', name);
+          // 백엔드 응답에 따라 필드명을 확인하세요.
+          const name = res.data.username || res.data.nickname || res.data.userName;
+          if (name) {
+            setUsername(name);
+            // 로컬에도 저장
+            await AsyncStorage.setItem('username', name);
+          } else {
+            // 응답에 이름이 없다면 저장된 값 사용
+            const savedName = await AsyncStorage.getItem('username');
+            if (savedName) setUsername(savedName);
+          }
         } catch (e) {
           console.error('사용자 정보 불러오기 실패:', e);
+          // API 호출 실패 시 로컬 저장값으로 대체
+          const savedName = await AsyncStorage.getItem('username');
+          if (savedName) setUsername(savedName);
         }
       };
       fetchProfile();
     }, []);
+
 
   useEffect(() => {
     const backAction = () => {
@@ -221,21 +231,21 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
       toggleSidebar(); // 사이드바 닫기
     };
 
-  const startNewChat = async () => {
-    setMessages([]);
-    setChatStartTime(null);
-    toggleSidebar();
-    try {
-      const response = await createThread('새 채팅');
-      const createdThread = response.data;
-      setThreadId(createdThread.thread_id);
-      setThreads((prev) => [...prev, createdThread]); // 목록에 새 항목 추가
-      setSelectedThreadId(createdThread.thread_id);
-    } catch (e) {
-      console.error('새 채팅 생성 실패:', e);
-      Alert.alert('오류', '새 채팅을 시작할 수 없습니다.');
-    }
-  };
+    const startNewChat = async () => {
+      setMessages([]);
+      setChatStartTime(null);
+      toggleSidebar();
+      try {
+        const response = await createThread('새 채팅');
+        const createdThread = response.data;
+        setThreadId(createdThread.thread_id);
+        setThreads((prev) => [...prev, createdThread]); // 목록에 새 항목 추가
+        setSelectedThreadId(createdThread.thread_id);
+      } catch (e) {
+        console.error('새 채팅 생성 실패:', e);
+        Alert.alert('오류', '새 채팅을 시작할 수 없습니다.');
+      }
+    };
   
 
   const two = (n: number) => n.toString().padStart(2, '0');
@@ -727,13 +737,12 @@ const handleSend = async (text?: string) => {
     </Modal>
   );
 
-  return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={headerHeight}
-    >
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}> 
+return (
+  <KeyboardAvoidingView
+    style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={16}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
       <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} backgroundColor={theme.headerBg} />
 
       {renderSidebar()}
@@ -794,24 +803,25 @@ const handleSend = async (text?: string) => {
           </TouchableOpacity>
           <Text style={[styles.headerTitle, { color: theme.text }]}>Pet Bot</Text>
         </View>
-        <View style={styles.headerRight}>
-          <Text style={[styles.welcomeText, { color: theme.subtext }]}>
-            환영합니다{'\n'}
-          <Text style={[styles.teamText, { color: theme.subtext }]}>
-            {`${username}님`}
-          </Text>
-          </Text>
-          <TouchableOpacity
-            style={[styles.profileIconContainer, { backgroundColor: darkMode ? '#2B2F33' : '#F0F2F4' }]}
-            onPress={() => navigation?.goToSettings && navigation.goToSettings()}
-          >
-            <Image
-              source={darkMode ? require('../logo/user2.png') : require('../logo/user.png')}
-              style={styles.profileIconImage}
-              resizeMode="contain"
-            />
-          </TouchableOpacity>
-        </View>
+          {/* 헤더 오른쪽 영역 */}
+          <View style={styles.headerRight}>
+            <Text style={[styles.welcomeText, { color: theme.subtext }]}>
+              환영합니다{'\n'}
+              <Text style={[styles.teamText, { color: theme.subtext }]}>
+                {username ? `${username}님` : ''}
+              </Text>
+            </Text>
+            <TouchableOpacity
+              style={[styles.profileIconContainer, { backgroundColor: darkMode ? '#2B2F33' : '#F0F2F4' }]}
+              onPress={() => navigation?.goToSettings && navigation.goToSettings()}
+            >
+              <Image
+                source={darkMode ? require('../logo/user2.png') : require('../logo/user.png')}
+                style={styles.profileIconImage}
+                resizeMode="contain"
+              />
+            </TouchableOpacity>
+          </View>
       </View>
 
       {/* 본문 */}
