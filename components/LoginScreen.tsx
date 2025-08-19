@@ -17,7 +17,7 @@ import {
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL } from './api';
-
+import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 interface LoginScreenProps {
   email: string;
   setEmail: (email: string) => void;
@@ -38,16 +38,16 @@ interface LoginScreenProps {
     buttons?: Array<{ text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive' }>
   ) => void;
 }
+
+// (선택) 로그인 성공 시 토큰/username 저장 함수 – 호출하지 않으면 그대로 두셔도 됩니다.
 const handleLoginSuccess = async (response: any) => {
   const { access, refresh, username } = response.data;
-  // access 토큰 저장
   await AsyncStorage.setItem('accessToken', access);
-  // ★ refresh 토큰도 저장
   await AsyncStorage.setItem('refreshToken', refresh);
-  // 사용자명 저장(필요하다면)
   await AsyncStorage.setItem('username', username);
   // 이후 화면 이동 등 처리...
 };
+
 const LoginScreen: React.FC<LoginScreenProps> = ({
   email,
   setEmail,
@@ -65,7 +65,9 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
   showCustomAlert,
 }) => {
   const [isLoading, setIsLoading] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false); // 로그인 유지하기 체크 상태
 
+  // 백 버튼으로 앱 종료 확인
   useEffect(() => {
     const backAction = () => {
       showCustomAlert('앱 종료', '정말로 앱을 종료하시겠습니까?', [
@@ -78,40 +80,46 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
     return () => backHandler.remove();
   }, [showCustomAlert]);
 
-const handleLoginPress = async () => {
-  // 입력값 검증...
-  setIsLoading(true);
-  try {
-    // username과 password를 URL 인코딩된 문자열로 만듭니다.
-    const payload =
-      `username=${encodeURIComponent(email.trim())}` +
-      `&password=${encodeURIComponent(password)}`;
+  const handleLoginPress = async () => {
+    // 입력값 검증…
+    setIsLoading(true);
+    try {
+      const payload =
+        `username=${encodeURIComponent(email.trim())}` +
+        `&password=${encodeURIComponent(password)}`;
 
-    const response = await axios.post(
-      `${API_BASE_URL}/auth/login`,
-      payload,
-      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-    );
+      const response = await axios.post(
+        `${API_BASE_URL}/auth/login`,
+        payload,
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+      );
 
-    if (response.status === 200 && response.data.access_token) {
-      await AsyncStorage.setItem('accessToken', response.data.access_token);
-      await AsyncStorage.setItem('refreshToken', response.data.refresh_token);
-      showCustomAlert('로그인 성공', '환영합니다!');
-      onLogin(); // 로그인 성공 시 챗봇 화면으로 이동
+        if (response.status === 200 && response.data.access_token) {
+          if (rememberMe) {
+            // 로그인 유지하기가 체크되었을 때만 토큰 저장
+            await AsyncStorage.setItem('accessToken', response.data.access_token);
+            await AsyncStorage.setItem('refreshToken', response.data.refresh_token);
+          } else {
+            // 체크하지 않았으면 토큰을 저장하지 않음
+            await AsyncStorage.removeItem('accessToken');
+            await AsyncStorage.removeItem('refreshToken');
+          }
+          showCustomAlert('로그인 성공', '환영합니다!');
+          onLogin();
+        }
+
+    } catch (error: any) {
+      let message = '로그인에 실패했습니다. 다시 시도해주세요.';
+      if (axios.isAxiosError(error) && error.response?.data?.detail) {
+        const detail = error.response.data.detail;
+        if (Array.isArray(detail)) message = detail.map((d: any) => d.msg).join('\n');
+        else if (typeof detail === 'string') message = detail;
+      }
+      showCustomAlert('로그인 실패', message);
+    } finally {
+      setIsLoading(false);
     }
-  } catch (error: any) {
-    let message = '로그인에 실패했습니다. 다시 시도해주세요.';
-    if (axios.isAxiosError(error) && error.response?.data?.detail) {
-      const detail = error.response.data.detail;
-      if (Array.isArray(detail)) message = detail.map((d: any) => d.msg).join('\n');
-      else if (typeof detail === 'string') message = detail;
-    }
-    showCustomAlert('로그인 실패', message);
-  } finally {
-    setIsLoading(false);
-  }
-};
-
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -150,7 +158,8 @@ const handleLoginPress = async () => {
                   blurOnSubmit={false}
                   returnKeyType="next"
                 />
-                  {loginEmailError ? <Text style={styles.errorText}>{loginEmailError}</Text> : null}
+                {loginEmailError ? <Text style={styles.errorText}>{loginEmailError}</Text> : null}
+
                 <TextInput
                   style={styles.input}
                   placeholder="비밀번호"
@@ -164,7 +173,21 @@ const handleLoginPress = async () => {
                   blurOnSubmit={false}
                   returnKeyType="done"
                 />
-                  {loginPasswordError ? <Text style={styles.errorText}>{loginPasswordError}</Text> : null}        
+                {loginPasswordError ? <Text style={styles.errorText}>{loginPasswordError}</Text> : null}
+
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+                  <TouchableOpacity
+                    onPress={() => setRememberMe(prev => !prev)}
+                    style={{ flexDirection: 'row', alignItems: 'center' }}
+                  >
+                    <MaterialIcons
+                      name={rememberMe ? 'check-box' : 'check-box-outline-blank'}
+                      size={20}
+                      color="#0080ff"
+                    />
+                    <Text style={{ marginLeft: 6, color: '#333', fontSize: 14 }}>로그인 유지하기</Text>
+                  </TouchableOpacity>
+                </View>
                 <TouchableOpacity
                   style={styles.loginButton}
                   onPress={handleLoginPress}
@@ -181,7 +204,7 @@ const handleLoginPress = async () => {
                   <TouchableOpacity onPress={onNavigateToSignup}>
                     <Text style={styles.linkText}>회원가입</Text>
                   </TouchableOpacity>
-                    <Text style={styles.linkDivider}>|</Text>
+                  <Text style={styles.linkDivider}>|</Text>
                   <TouchableOpacity onPress={onNavigateToFindAccount}>
                     <Text style={styles.linkText}>계정 찾기</Text>
                   </TouchableOpacity>

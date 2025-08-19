@@ -884,17 +884,17 @@ const handleSend = async (text?: string) => {
       </View>
 
       {/* 입력창: KeyboardAvoidingView만 사용, 일반 View로 변경 */}
-      <View
-        style={[
-          styles.inputContainer,
-          {
-            backgroundColor: theme.surface,
-            borderTopColor: theme.border,
-            paddingBottom: insets.bottom || 0,
-            minHeight: INPUT_BAR_MIN_HEIGHT,
-          },
-        ]}
-      >
+          <View
+            style={[
+              styles.inputContainer,
+              {
+                backgroundColor: theme.surface,
+                borderTopColor: theme.border,
+                paddingBottom: insets.bottom || 0,
+                minHeight: INPUT_BAR_MIN_HEIGHT,
+              },
+            ]}
+          >
         <View
           style={[
             styles.inputWrapper,

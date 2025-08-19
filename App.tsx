@@ -26,7 +26,16 @@ import ChatBotScreen from './components/ChatBotScreen';
 import SettingsScreen from './components/SettingsScreen';
 import CustomAlert from './components/CustomAlert';
 import PhotoGalleryScreen from './components/PhotoGalleryScreen';
-
+type ScreenName =
+  | 'splash'
+  | 'login'
+  | 'chat'
+  | 'signup'
+  | 'findAccount'
+  | 'resetPassword'
+  | 'settings'
+  | 'privacyPolicy'
+  | 'photoGallery';
 // 앱 전역 상태 관리용 Context
 interface AppContextType {
   showCustomAlert: (
@@ -34,7 +43,7 @@ interface AppContextType {
     message: string,
     buttons?: Array<{ text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive' }>
   ) => void;
-  navigateToScreen: (screen: string) => void;
+  navigateToScreen: (nextScreen: ScreenName) => void;  // ← 여기!
   goBackToLogin: () => void;
 }
 const AppContext = React.createContext<AppContextType | null>(null);
@@ -46,11 +55,13 @@ export const useAppContext = () => {
 
 const App = () => {
   // refresh 토큰을 이용한 자동 로그인 상태
-  const [isLoading, setLoading] = useState(true);    // 초기 로딩 여부
+  const [isLoading, setLoading] = useState(true); // 초기 로딩 여부
   const [isLoggedIn, setLoggedIn] = useState(false); // 로그인 여부
+  // 화면 전환을 위한 상태 (ScreenName 타입을 사용)
+  const [currentScreen, setCurrentScreen] = useState<ScreenName>('splash');
+
 
   // 전역 상태
-  const [currentScreen, setCurrentScreen] = React.useState('splash');
   const [showExitModal, setShowExitModal] = React.useState(false);
   const [chatTheme, setChatTheme] = React.useState(false);
   const [darkMode, setDarkMode] = React.useState(false);
@@ -58,7 +69,7 @@ const App = () => {
   // 애니메이션
   const fadeAnimation = React.useRef(new Animated.Value(1)).current;
   const [isAnimating, setIsAnimating] = React.useState(false);
-
+  
   // 로그인 관련 상태
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
@@ -120,16 +131,16 @@ const App = () => {
   ) => setCustomAlert({ visible: true, title, message, buttons });
 
   // 화면 전환(페이드)
-  const navigateToScreen = (screen: string) => {
-    if (isAnimating) return;
-    setIsAnimating(true);
-    Animated.timing(fadeAnimation, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
-      setCurrentScreen(screen);
-      Animated.timing(fadeAnimation, { toValue: 1, duration: 200, useNativeDriver: true }).start(() => {
-        setIsAnimating(false);
+    const navigateToScreen = (nextScreen: ScreenName) => {
+      if (isAnimating) return;
+      setIsAnimating(true);
+      Animated.timing(fadeAnimation, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
+        setCurrentScreen(nextScreen); // ← 여기!
+        Animated.timing(fadeAnimation, { toValue: 1, duration: 200, useNativeDriver: true }).start(() => {
+          setIsAnimating(false);
+        });
       });
-    });
-  };
+    };
 
   // 로그인으로 돌아가기(상태 초기화)
   const goBackToLogin = () => {
@@ -444,14 +455,21 @@ const App = () => {
           setLoggedIn(false);
           setCurrentScreen('login');
         }
+      } else {
+        // refreshToken이 없으면 로그인 화면으로
+        setLoggedIn(false);
+        setCurrentScreen('login');
       }
-      setLoading(false);
+      // API 요청이 끝난 뒤에만 스플래시 종료
+      setTimeout(() => {
+        setLoading(false);
+      }, 4000); // 3초 후 스플래시 종료 (딜레이는 필요에 따라 조정)
     };
 
     bootstrap();
   }, []);
 
-  // 초기 로딩 중일 때 스플래시 화면 등을 표시
+  // 초기 로딩 중일 때 스플래시 화면 표시
   if (isLoading) {
     return <SplashScreen onFinish={() => {}} />;
   }
