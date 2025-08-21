@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   Platform,
-  SafeAreaView,
   StatusBar,
   Image,
   ScrollView,
@@ -18,22 +17,22 @@ import {
   Alert,
   PermissionsAndroid,
   Keyboard,
+  FlatList,
+  KeyboardAvoidingView,
 } from 'react-native';
 
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { launchImageLibrary, launchCamera, ImagePickerResponse, MediaType } from 'react-native-image-picker';
-import { KeyboardAwareFlatList } from 'react-native-keyboard-aware-scroll-view';
-import {   
+import {
   createThread,
   sendMessage,
   getThreads,
   getMessages,
   updateThread,
   deleteThread,
-  getUserProfile 
-   } from './api'; 
-import { KeyboardAvoidingView } from 'react-native';
+  getUserProfile
+} from './api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type Message = {
@@ -79,13 +78,13 @@ const PALETTE = {
   },
 };
 
-// 입력바 최소 높이
 const INPUT_BAR_MIN_HEIGHT = 64;
 
 const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
   const insets = useSafeAreaInsets();
   const theme = useMemo(() => (darkMode ? PALETTE.dark : PALETTE.light), [darkMode]);
   const { width: screenWidth } = Dimensions.get('window');
+
   const [threadId, setThreadId] = useState<number | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -103,48 +102,70 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
   const [renameModalVisible, setRenameModalVisible] = useState(false);
   const [newTitle, setNewTitle] = useState('');
 
-  const flatListRef = useRef<KeyboardAwareFlatList>(null);
+  const flatListRef = useRef<FlatList<Message>>(null);
   const sidebarAnimation = useRef(new Animated.Value(-300)).current;
   const spinnerAnimation = useRef(new Animated.Value(0)).current;
   const cursorAnimation = useRef(new Animated.Value(1)).current;
+
+  // ★ 추가: 키보드 열림/닫힘 상태
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
   const quickActions = [
     { icon: 'camera-alt', title: '동물 사진 분석', description: '반려동물 사진을 업로드하여 건강 상태를 분석해보세요' },
     { icon: 'pets', title: '펫 헬스케어', description: '사료, 증상, 생활습관 등 무엇이든 물어보세요' },
   ];
 
-  // 키보드 이동 관련 코드 완전 제거 (KeyboardAvoidingView만 사용)
+  const scrollToEnd = (animated = true) => {
+    requestAnimationFrame(() => {
+      flatListRef.current?.scrollToEnd({ animated });
+    });
+  };
 
+  // 메시지 추가 시 자동 스크롤
   useEffect(() => {
-    if (messages.length > 0) setTimeout(() => flatListRef.current?.scrollToEnd(), 80);
+    if (messages.length > 0) setTimeout(() => scrollToEnd(true), 80);
   }, [messages]);
 
-    useEffect(() => {
-        const fetchName = async () => {
-          try {
-            // 1단계: 로컬에 저장된 이름이 있다면 우선 설정
-            const savedName = await AsyncStorage.getItem('username');
-            if (savedName) {
-              setUsername(savedName);
-            }
+  // ★ 변경: 키보드 이벤트에서 스크롤 보정 + 가시성 상태 동시 관리
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
 
-            // 2단계: 서버에서 프로필을 가져와 이름을 최신화
-            const res = await getUserProfile();
-            // 백엔드 응답에 따라 필드명을 확인하세요.
-            const name = res.data?.username || res.data?.nickname || res.data?.userName;
-            if (name) {
-              setUsername(name);
-              await AsyncStorage.setItem('username', name); // 로컬에도 저장
-            }
-          } catch (e) {
-            console.error('사용자 정보 불러오기 실패:', e);
-            // 서버 호출에 실패해도 savedName이 있으면 이미 설정되어 있으므로 추가 조치 불필요
-          }
-        };
-        fetchName();
-      }, []);
+    const onShow = () => {
+      setIsKeyboardVisible(true);
+      setTimeout(() => scrollToEnd(true), 60);
+    };
+    const onHide = () => {
+      setIsKeyboardVisible(false);
+      setTimeout(() => scrollToEnd(false), 60);
+    };
 
+    const showSub = Keyboard.addListener(showEvt, onShow);
+    const hideSub = Keyboard.addListener(hideEvt, onHide);
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, []);
 
+  // 프로필 이름
+  useEffect(() => {
+    const fetchName = async () => {
+      try {
+        const savedName = await AsyncStorage.getItem('username');
+        if (savedName) setUsername(savedName);
+
+        const res = await getUserProfile();
+        const name = res.data?.username || res.data?.nickname || res.data?.userName;
+        if (name) {
+          setUsername(name);
+          await AsyncStorage.setItem('username', name);
+        }
+      } catch (e) {
+        console.error('사용자 정보 불러오기 실패:', e);
+      }
+    };
+    fetchName();
+  }, []);
+
+  // 뒤로 가기/사이드바
   useEffect(() => {
     const backAction = () => {
       if (sidebarVisible) {
@@ -158,30 +179,29 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
     return () => backHandler.remove();
   }, [sidebarVisible, navigation]);
 
+  // 스피너 애니메이션
   useEffect(() => {
     if (isDiagnosing) {
-      const loop = Animated.loop(
-        Animated.timing(spinnerAnimation, { toValue: 1, duration: 1000, useNativeDriver: true })
-      );
+      const loop = Animated.loop(Animated.timing(spinnerAnimation, { toValue: 1, duration: 1000, useNativeDriver: true }));
       loop.start();
-      return () => {
-        loop.stop();
-        spinnerAnimation.setValue(0);
-      };
+      return () => { loop.stop(); spinnerAnimation.setValue(0); };
     }
   }, [isDiagnosing, spinnerAnimation]);
-    useEffect(() => {
-      const fetchThreads = async () => {
-        try {
-          const res = await getThreads();
-          setThreads(res.data); // assume res.data is an array of threads
-        } catch (e) {
-          console.error('채팅 목록 불러오기 실패:', e);
-        }
-      };
-      fetchThreads();
-    }, []);
 
+  // 스레드 목록
+  useEffect(() => {
+    const fetchThreads = async () => {
+      try {
+        const res = await getThreads();
+        setThreads(res.data);
+      } catch (e) {
+        console.error('채팅 목록 불러오기 실패:', e);
+      }
+    };
+    fetchThreads();
+  }, []);
+
+  // 타이핑 커서
   useEffect(() => {
     if (isTyping && !isDiagnosing) {
       const blink = Animated.loop(
@@ -191,10 +211,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
         ])
       );
       blink.start();
-      return () => {
-        blink.stop();
-        cursorAnimation.setValue(1);
-      };
+      return () => { blink.stop(); cursorAnimation.setValue(1); };
     }
   }, [isTyping, isDiagnosing, cursorAnimation]);
 
@@ -208,45 +225,44 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
       Animated.timing(sidebarAnimation, { toValue: 0, duration: 280, useNativeDriver: false }).start();
     }
   };
-    const selectThread = async (thread: { thread_id: number; thread_title: string }) => {
-      setSelectedThreadId(thread.thread_id);
-      setThreadId(thread.thread_id);
-      setChatStartTime(null);
-      try {
-        const res = await getMessages(thread.thread_id);
-        // res.data는 백엔드에서 돌려주는 메시지 목록이라고 가정합니다.
-        setMessages(
-          res.data.map((m: any) => ({
-            id: String(m.message_id),
-            text: m.content,
-            sender: m.sender_type === 'assistant' ? 'bot' : 'user',
-            timestamp: new Date(m.created_at),
-            image: m.image_url ?? undefined,
-          })),
-        );
-      } catch (e) {
-        console.error('메시지 불러오기 실패:', e);
-        Alert.alert('오류', '채팅을 열 수 없습니다.');
-      }
-      toggleSidebar(); // 사이드바 닫기
-    };
 
-    const startNewChat = async () => {
-      setMessages([]);
-      setChatStartTime(null);
-      toggleSidebar();
-      try {
-        const response = await createThread('새 채팅');
-        const createdThread = response.data;
-        setThreadId(createdThread.thread_id);
-        setThreads((prev) => [...prev, createdThread]); // 목록에 새 항목 추가
-        setSelectedThreadId(createdThread.thread_id);
-      } catch (e) {
-        console.error('새 채팅 생성 실패:', e);
-        Alert.alert('오류', '새 채팅을 시작할 수 없습니다.');
-      }
-    };
-  
+  const selectThread = async (thread: { thread_id: number; thread_title: string }) => {
+    setSelectedThreadId(thread.thread_id);
+    setThreadId(thread.thread_id);
+    setChatStartTime(null);
+    try {
+      const res = await getMessages(thread.thread_id);
+      setMessages(
+        res.data.map((m: any) => ({
+          id: String(m.message_id),
+          text: m.content,
+          sender: m.sender_type === 'assistant' ? 'bot' : 'user',
+          timestamp: new Date(m.created_at),
+          image: m.image_url ?? undefined,
+        })),
+      );
+    } catch (e) {
+      console.error('메시지 불러오기 실패:', e);
+      Alert.alert('오류', '채팅을 열 수 없습니다.');
+    }
+    toggleSidebar();
+  };
+
+  const startNewChat = async () => {
+    setMessages([]);
+    setChatStartTime(null);
+    toggleSidebar();
+    try {
+      const response = await createThread('새 채팅');
+      const createdThread = response.data;
+      setThreadId(createdThread.thread_id);
+      setThreads((prev) => [...prev, createdThread]);
+      setSelectedThreadId(createdThread.thread_id);
+    } catch (e) {
+      console.error('새 채팅 생성 실패:', e);
+      Alert.alert('오류', '새 채팅을 시작할 수 없습니다.');
+    }
+  };
 
   const two = (n: number) => n.toString().padStart(2, '0');
   const formatChatStartTime = (d: Date) =>
@@ -346,49 +362,47 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
     }, 1800);
   };
 
-const handleSend = async (text?: string) => {
-  const messageText = (text ?? input).trim();
-  if (!messageText) return;
-  ensureStartTime();
-  const now = new Date();
-  const userMsg: Message = { id: Date.now().toString(), text: messageText, sender: 'user', timestamp: now };
-  setMessages((prev) => [...prev, userMsg]);
-  setInput('');
-  setIsDiagnosing(true);
+  const handleSend = async (text?: string) => {
+    const messageText = (text ?? input).trim();
+    if (!messageText) return;
+    ensureStartTime();
+    const now = new Date();
+    const userMsg: Message = { id: Date.now().toString(), text: messageText, sender: 'user', timestamp: now };
+    setMessages((prev) => [...prev, userMsg]);
+    setInput('');
+    setIsDiagnosing(true);
 
-  // DB에 유저 메시지 저장
-  if (threadId) {
-    try {
-      await sendMessage(threadId, messageText, 'user');
-    } catch (e) {
-      console.error('메시지 저장 실패:', e);
-    }
-  }
-
-  setTimeout(() => {
-    const botResponse = generateBotResponse(messageText);
-    typeWriter(botResponse, async () => {
-      const botMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        text: botResponse,
-        sender: 'bot',
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, botMsg]);
-      setTypingText('');
-
-      if (threadId) {
-        try {
-          const updated = await getThreads();
-          setThreads(updated.data);
-        } catch (e) {
-          console.error('스레드 목록 갱신 실패:', e);
-        }
+    if (threadId) {
+      try {
+        await sendMessage(threadId, messageText, 'user');
+      } catch (e) {
+        console.error('메시지 저장 실패:', e);
       }
-    });
-  }, 1200);
-};
+    }
 
+    setTimeout(() => {
+      const botResponse = generateBotResponse(messageText);
+      typeWriter(botResponse, async () => {
+        const botMsg: Message = {
+          id: (Date.now() + 1).toString(),
+          text: botResponse,
+          sender: 'bot',
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, botMsg]);
+        setTypingText('');
+
+        if (threadId) {
+          try {
+            const updated = await getThreads();
+            setThreads(updated.data);
+          } catch (e) {
+            console.error('스레드 목록 갱신 실패:', e);
+          }
+        }
+      });
+    }, 1200);
+  };
 
   const generateBotResponse = (msg: string): string => {
     const m = msg.toLowerCase();
@@ -572,66 +586,62 @@ const handleSend = async (text?: string) => {
               <View style={styles.sidebarSection}>
                 <Text style={[styles.sectionTitle, { color: theme.subtext }]}>내 채팅</Text>
                 {threads.map((thread) => (
-  <View key={thread.thread_id} style={{ flexDirection: 'row', alignItems: 'center' }}>
-    {/* 채팅을 눌렀을 때 해당 쓰레드를 열도록 설정 */}
-    <TouchableOpacity
-      style={{ flex: 1, paddingVertical: 10, paddingHorizontal: 20 }}
-      onPress={() => selectThread(thread)}
-    >
-      <Text style={{ color: theme.text }}>{thread.thread_title}</Text>
-    </TouchableOpacity>
+                  <View key={thread.thread_id} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <TouchableOpacity
+                      style={{ flex: 1, paddingVertical: 10, paddingHorizontal: 20 }}
+                      onPress={() => selectThread(thread)}
+                    >
+                      <Text style={{ color: theme.text }}>{thread.thread_title}</Text>
+                    </TouchableOpacity>
 
-    {/* 햄버거 메뉴: 이름 변경/삭제 메뉴를 띄우는 버튼 */}
-    <TouchableOpacity
-      style={{ paddingHorizontal: 16, paddingVertical: 10 }}
-      onPress={() => {
-        Alert.alert(
-          '채팅 옵션',
-          '',
-          [
-            {
-              text: '이름 변경',
-              onPress: () => {
-                setNewTitle(thread.thread_title);
-                setSelectedThreadId(thread.thread_id);
-                setRenameModalVisible(true);
-              },
-            },
-            {
-              text: '삭제',
-              onPress: async () => {
-                try {
-                  await deleteThread(thread.thread_id);
-                  // 삭제 후 서버에서 새 목록 불러오기
-                  const updated = await getThreads();
-                  setThreads(updated.data);
-                  if (selectedThreadId === thread.thread_id) {
-                    setMessages([]);
-                    setThreadId(null);
-                    setSelectedThreadId(null);
-                  }
-                } catch (e) {
-                  console.error('삭제 실패:', e);
-                  Alert.alert('오류', '채팅을 삭제할 수 없습니다.');
-                }
-              },
-              style: 'destructive',
-            },
-            { text: '취소', style: 'cancel' },
-          ],
-          { cancelable: true },
-        );
-      }}
-    >
-      <MaterialIcons name="more-horiz" size={20} color={theme.subtext} />
-    </TouchableOpacity>
-  </View>
-))}
-
+                    <TouchableOpacity
+                      style={{ paddingHorizontal: 16, paddingVertical: 10 }}
+                      onPress={() => {
+                        Alert.alert(
+                          '채팅 옵션',
+                          '',
+                          [
+                            {
+                              text: '이름 변경',
+                              onPress: () => {
+                                setNewTitle(thread.thread_title);
+                                setSelectedThreadId(thread.thread_id);
+                                setRenameModalVisible(true);
+                              },
+                            },
+                            {
+                              text: '삭제',
+                              onPress: async () => {
+                                try {
+                                  await deleteThread(thread.thread_id);
+                                  const updated = await getThreads();
+                                  setThreads(updated.data);
+                                  if (selectedThreadId === thread.thread_id) {
+                                    setMessages([]);
+                                    setThreadId(null);
+                                    setSelectedThreadId(null);
+                                  }
+                                } catch (e) {
+                                  console.error('삭제 실패:', e);
+                                  Alert.alert('오류', '채팅을 삭제할 수 없습니다.');
+                                }
+                              },
+                              style: 'destructive',
+                            },
+                            { text: '취소', style: 'cancel' },
+                          ],
+                          { cancelable: true },
+                        );
+                      }}
+                    >
+                      <MaterialIcons name="more-horiz" size={20} color={theme.subtext} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
               </View>
             </ScrollView>
 
-            <View style={[styles.sidebarBottom, { borderTopColor: theme.border }]}>
+            <View style={[styles.sidebarBottom, { borderTopColor: theme.border }]} >
               <TouchableOpacity
                 style={[styles.logoutButton, { backgroundColor: '#dc3545', borderColor: theme.border }]}
                 onPress={() => setLogoutModalVisible(true)}
@@ -740,63 +750,20 @@ const handleSend = async (text?: string) => {
     </Modal>
   );
 
-return (
-  <KeyboardAvoidingView
-    style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={16}>
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+  // 헤더 고정, 본문+입력만 KAV
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]} edges={['top', 'left', 'right']}>
       <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} backgroundColor={theme.headerBg} />
 
       {renderSidebar()}
       {renderImagePickerModal()}
       {renderLogoutModal()}
-      {/* 이름 변경 모달 */}
-<Modal visible={renameModalVisible} transparent animationType="fade" onRequestClose={() => setRenameModalVisible(false)}>
-  <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
-    <View style={{ width: '80%', backgroundColor: '#fff', padding: 20, borderRadius: 8 }}>
-      <Text style={{ fontSize: 16, marginBottom: 10 }}>채팅 이름 수정</Text>
-      <TextInput
-        value={newTitle}
-        onChangeText={setNewTitle}
-        placeholder="새로운 이름"
-        style={{ borderWidth: 1, borderColor: '#ccc', borderRadius: 5, padding: 8, marginBottom: 10 }}
-      />
-      <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
-        <TouchableOpacity onPress={() => setRenameModalVisible(false)} style={{ marginRight: 10 }}>
-          <Text style={{ color: '#999' }}>취소</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={async () => {
-            if (!selectedThreadId) return;
-            try {
-              await updateThread(selectedThreadId, newTitle);
-              setThreads((prev) =>
-                prev.map((t) => (t.thread_id === selectedThreadId ? { ...t, thread_title: newTitle } : t)),
-              );
-              setRenameModalVisible(false);
-            } catch (e) {
-              console.error('이름 변경 실패:', e);
-              Alert.alert('오류', '이름을 수정할 수 없습니다.');
-            }
-          }}
-        >
-          <Text style={{ color: '#0080ff' }}>저장</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  </View>
-</Modal>
 
-
-      {/* 헤더 */}
+      {/* 헤더 (고정) */}
       <View
         style={[
           styles.header,
-          {
-            backgroundColor: theme.headerBg,
-            borderBottomColor: theme.border,
-          },
+          { backgroundColor: theme.headerBg, borderBottomColor: theme.border },
         ]}
         onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
       >
@@ -806,154 +773,164 @@ return (
           </TouchableOpacity>
           <Text style={[styles.headerTitle, { color: theme.text }]}>Pet Bot</Text>
         </View>
-          {/* 헤더 오른쪽 영역 */}
-          <View style={styles.headerRight}>
-            <Text style={[styles.welcomeText, { color: theme.subtext }]}>
-              환영합니다{'\n'}
-              <Text style={[styles.teamText, { color: theme.subtext }]}>
-                {username ? `${username}님` : ''}
-              </Text>
-            </Text>
-            <TouchableOpacity
-              style={[styles.profileIconContainer, { backgroundColor: darkMode ? '#2B2F33' : '#F0F2F4' }]}
-              onPress={() => navigation?.goToSettings && navigation.goToSettings()}
-            >
-              <Image
-                source={darkMode ? require('../logo/user2.png') : require('../logo/user.png')}
-                style={styles.profileIconImage}
-                resizeMode="contain"
-              />
-            </TouchableOpacity>
-          </View>
-      </View>
-
-      {/* 본문 */}
-      <View style={{ flex: 1 }}>
-        {messages.length === 0 ? (
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.welcomeContent} showsVerticalScrollIndicator={false}>
-            <View style={styles.logoSection}>
-              <View
-                style={[
-                  styles.logoContainer,
-                  { backgroundColor: darkMode ? '#1F2426' : '#F6F8FA', borderColor: theme.border },
-                ]}
-              >
-                <Image source={chatTheme ? require('../logo/cat.png') : require('../logo/dog.png')} style={styles.logoImage} resizeMode="contain" />
-              </View>
-              <Text style={[styles.welcomeTitle, { color: theme.text }]}>무엇을 도와드릴까요?</Text>
-            </View>
-
-            <View style={styles.quickActionsContainer}>
-              {quickActions.map((action, i) => (
-                <TouchableOpacity
-                  key={i}
-                  style={[styles.quickActionCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
-                  onPress={() => {
-                    if (action.title === '동물 사진 분석') showImagePicker();
-                    else if (action.title === '펫 헬스케어') setInput('펫 헬스케어에 대해 알려주세요');
-                    else handleSend(action.title);
-                  }}
-                >
-                  <View style={styles.quickActionHeader}>
-                    <MaterialIcons name={action.icon} size={24} color={theme.primary} style={{ marginRight: 12 }} />
-                    <Text style={[styles.quickActionTitle, { color: theme.text }]}>{action.title}</Text>
-                  </View>
-                  <Text style={[styles.quickActionDescription, { color: theme.subtext }]}>{action.description}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </ScrollView>
-        ) : (
-          <KeyboardAwareFlatList
-            ref={flatListRef}
-            data={messages}
-            renderItem={({ item, index }) => renderMessage({ item, index })}
-            keyExtractor={(item) => item.id}
-            // 입력바 높이 + 안전영역 + 키보드 높이만큼 패딩
-            contentContainerStyle={{
-              padding: 15,
-              paddingBottom: INPUT_BAR_MIN_HEIGHT + (insets.bottom || 0) + 8,
-            }}
-            ListHeaderComponent={
-              chatStartTime ? (
-                <View style={styles.chatStartTimeContainer}>
-                  <Text style={[styles.chatStartTimeText, { backgroundColor: theme.chipBg, color: theme.chipText }]}>
-                    {formatChatStartTime(chatStartTime)}
-                  </Text>
-                </View>
-              ) : null
-            }
-            ListFooterComponent={isDiagnosing || isTyping ? renderTypingIndicator : null}
-            keyboardShouldPersistTaps="handled"
-            enableOnAndroid
-            enableAutomaticScroll
-            extraScrollHeight={0}
-            showsVerticalScrollIndicator={false}
-            keyboardDismissMode="interactive"
-            onContentSizeChange={() => flatListRef.current?.scrollToEnd()}
-            onLayout={() => flatListRef.current?.scrollToEnd()}
-          />
-        )}
-      </View>
-
-      {/* 입력창: KeyboardAvoidingView만 사용, 일반 View로 변경 */}
-          <View
-            style={[
-              styles.inputContainer,
-              {
-                backgroundColor: theme.surface,
-                borderTopColor: theme.border,
-                paddingBottom: insets.bottom || 0,
-                minHeight: INPUT_BAR_MIN_HEIGHT,
-              },
-            ]}
-          >
-        <View
-          style={[
-            styles.inputWrapper,
-            {
-              backgroundColor: darkMode ? '#1F2426' : '#F6F8FA',
-              borderColor: theme.border,
-            },
-          ]}
-        >
-          <TouchableOpacity style={styles.attachButton} onPress={showImagePicker}>
-            <MaterialIcons name="photo-camera" size={20} color={theme.subtext} />
-          </TouchableOpacity>
-          <TextInput
-            style={[styles.input, { color: theme.text }]}
-            placeholder="메시지를 입력하세요..."
-            placeholderTextColor={theme.subtext}
-            value={input}
-            onChangeText={setInput}
-            multiline
-            maxLength={500}
-            blurOnSubmit={false}
-            returnKeyType="send"
-            removeClippedSubviews={false}
-            onFocus={() => {
-              setTimeout(() => flatListRef.current?.scrollToEnd(), Platform.OS === 'ios' ? 80 : 200);
-            }}
-            onSubmitEditing={() => {
-              if (!input.trim()) return;
-              handleSend();
-            }}
-          />
+        <View style={styles.headerRight}>
+          <Text style={[styles.welcomeText, { color: theme.subtext }]}>
+            환영합니다{'\n'}
+            <Text style={[styles.teamText, { color: theme.subtext }]}>{username ? `${username}님` : ''}</Text>
+          </Text>
           <TouchableOpacity
-            onPress={() => handleSend()}
-            style={[
-              styles.sendButton,
-              { backgroundColor: input.trim() ? theme.primary : (darkMode ? '#2B2F33' : '#E6EAEE') },
-            ]}
-            disabled={!input.trim()}
+            style={[styles.profileIconContainer, { backgroundColor: darkMode ? '#2B2F33' : '#F0F2F4' }]}
+            onPress={() => navigation?.goToSettings && navigation.goToSettings()}
           >
-            <MaterialIcons name="send" size={18} color={input.trim() ? '#fff' : (darkMode ? '#565B60' : '#98A2AE')} />
+            <Image
+              source={darkMode ? require('../logo/user2.png') : require('../logo/user.png')}
+              style={styles.profileIconImage}
+              resizeMode="contain"
+            />
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* 본문+입력창 */}
+      {/* ★ 변경: Android도 KeyboardAvoidingView 적용 (height), iOS는 padding */}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}  // 헤더는 KAV 밖이라 오프셋 불필요
+      >
+        <View style={{ flex: 1 }}>
+          {messages.length === 0 ? (
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={[
+                styles.welcomeContent,
+                // ★ 변경: 키보드 열림 시 하단 여백 축소(세이프에어리어 제외)
+                { paddingBottom: isKeyboardVisible ? 8 : 40 + (insets.bottom || 0) }
+              ]}
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.logoSection}>
+                <View
+                  style={[
+                    styles.logoContainer,
+                    { backgroundColor: darkMode ? '#1F2426' : '#F6F8FA', borderColor: theme.border },
+                  ]}
+                >
+                  <Image
+                    source={chatTheme ? require('../logo/cat.png') : require('../logo/dog.png')}
+                    style={styles.logoImage}
+                    resizeMode="contain"
+                  />
+                </View>
+                <Text style={[styles.welcomeTitle, { color: theme.text }]}>무엇을 도와드릴까요?</Text>
+              </View>
+
+              <View style={styles.quickActionsContainer}>
+                {quickActions.map((action, i) => (
+                  <TouchableOpacity
+                    key={i}
+                    style={[styles.quickActionCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                    onPress={() => {
+                      if (action.title === '동물 사진 분석') showImagePicker();
+                      else if (action.title === '펫 헬스케어') setInput('펫 헬스케어에 대해 알려주세요');
+                      else handleSend(action.title);
+                    }}
+                  >
+                    <View style={styles.quickActionHeader}>
+                      <MaterialIcons name={action.icon} size={24} color={theme.primary} style={{ marginRight: 12 }} />
+                      <Text style={[styles.quickActionTitle, { color: theme.text }]}>{action.title}</Text>
+                    </View>
+                    <Text style={[styles.quickActionDescription, { color: theme.subtext }]}>{action.description}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+          ) : (
+            <FlatList
+              ref={flatListRef}
+              data={messages}
+              renderItem={({ item, index }) => renderMessage({ item, index })}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={{
+                padding: 15,
+                // ★ 변경: 키보드 열림 시 세이프에어리어 여백을 빼서 바짝 붙게
+                paddingBottom: INPUT_BAR_MIN_HEIGHT + 8 + (isKeyboardVisible ? 0 : (insets.bottom || 0)),
+              }}
+              ListHeaderComponent={
+                chatStartTime ? (
+                  <View style={styles.chatStartTimeContainer}>
+                    <Text style={[styles.chatStartTimeText, { backgroundColor: theme.chipBg, color: theme.chipText }]}>
+                      {formatChatStartTime(chatStartTime)}
+                    </Text>
+                  </View>
+                ) : null
+              }
+              ListFooterComponent={isDiagnosing || isTyping ? renderTypingIndicator : null}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              onContentSizeChange={() => scrollToEnd(false)}
+              onLayout={() => scrollToEnd(false)}
+            />
+          )}
+        </View>
+
+        {/* 입력창 */}
+        <View
+          style={[
+            styles.inputContainer,
+            {
+              backgroundColor: theme.surface,
+              borderTopColor: theme.border,
+              // ★ 변경: 키보드가 열리면 하단 패딩 0으로(키보드 바로 위에!)
+              paddingBottom: isKeyboardVisible ? 0 : (insets.bottom || 0),
+              minHeight: INPUT_BAR_MIN_HEIGHT,
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.inputWrapper,
+              {
+                backgroundColor: darkMode ? '#1F2426' : '#F6F8FA',
+                borderColor: theme.border,
+              },
+            ]}
+          >
+            <TouchableOpacity style={styles.attachButton} onPress={showImagePicker}>
+              <MaterialIcons name="photo-camera" size={20} color={theme.subtext} />
+            </TouchableOpacity>
+            <TextInput
+              style={[styles.input, { color: theme.text }]}
+              placeholder="메시지를 입력하세요..."
+              placeholderTextColor={theme.subtext}
+              value={input}
+              onChangeText={setInput}
+              multiline
+              maxLength={500}
+              blurOnSubmit={false}
+              returnKeyType="send"
+              removeClippedSubviews={false}
+              onFocus={() => setTimeout(() => scrollToEnd(true), 120)}
+              onSubmitEditing={() => {
+                if (!input.trim()) return;
+                handleSend();
+              }}
+            />
+            <TouchableOpacity
+              onPress={() => handleSend()}
+              style={[
+                styles.sendButton,
+                { backgroundColor: input.trim() ? theme.primary : (darkMode ? '#2B2F33' : '#E6EAEE') },
+              ]}
+              disabled={!input.trim()}
+            >
+              <MaterialIcons name="send" size={18} color={input.trim() ? '#fff' : (darkMode ? '#565B60' : '#98A2AE')} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
-  </KeyboardAvoidingView>
-);
+  );
 };
 
 const styles = StyleSheet.create({
@@ -965,7 +942,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 15,
     paddingVertical: 14,
-    paddingTop: 50,
     borderBottomWidth: 1,
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
@@ -977,7 +953,6 @@ const styles = StyleSheet.create({
   profileIconImage: { width: 25, height: 25, borderRadius: 12.5 },
   profileIconContainer: { width: 35, height: 35, borderRadius: 17.5, justifyContent: 'center', alignItems: 'center', marginLeft: 8 },
 
-  // 빈 상태
   welcomeContent: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20, paddingBottom: 40 },
   logoSection: { alignItems: 'center', marginBottom: 28 },
   logoContainer: { width: 84, height: 84, borderRadius: 42, justifyContent: 'center', alignItems: 'center', marginBottom: 16, borderWidth: 1 },
@@ -998,7 +973,6 @@ const styles = StyleSheet.create({
   quickActionTitle: { fontSize: 15, fontWeight: '700' },
   quickActionDescription: { fontSize: 13, lineHeight: 19 },
 
-  // 메시지 리스트
   userMessageContainer: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'flex-end', marginVertical: 4, paddingHorizontal: 10 },
   botMessageContainer: { flexDirection: 'row', justifyContent: 'flex-start', alignItems: 'flex-start', marginVertical: 4, paddingHorizontal: 0 },
   botAvatar: { width: 40, height: 40, borderRadius: 20, marginRight: 6, marginTop: 2 },
@@ -1007,7 +981,6 @@ const styles = StyleSheet.create({
   messageText: { fontSize: 15, lineHeight: 22 },
   messageImage: { width: 210, height: 210, borderRadius: 12, marginBottom: 6 },
 
-  // 날짜/시간 칩
   chatStartTimeContainer: { alignItems: 'center', marginVertical: 18 },
   chatStartTimeText: { fontSize: 12, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 },
   dateSeparatorContainer: { alignItems: 'center', marginVertical: 14 },
@@ -1015,14 +988,12 @@ const styles = StyleSheet.create({
   botTimeContainer: { marginLeft: 55, marginTop: 2, marginBottom: 8 },
   botTimeText: { fontSize: 11 },
 
-  // 타이핑/진단
   diagnosingContainer: { flexDirection: 'row', alignItems: 'center', padding: 5 },
   loadingSpinner: { width: 16, height: 16, borderRadius: 8, borderWidth: 2, borderTopColor: 'transparent', marginRight: 8 },
   diagnosingText: { fontSize: 14 },
   typingContainer: { flexDirection: 'row', alignItems: 'flex-end', flexWrap: 'wrap' },
   typingCursor: { width: 2, height: 18, marginLeft: 3, opacity: 1 },
 
-  // 입력 영역
   inputContainer: {
     borderTopWidth: 1,
     paddingHorizontal: 15,
@@ -1033,7 +1004,6 @@ const styles = StyleSheet.create({
   input: { flex: 1, fontSize: 16, maxHeight: 120, paddingVertical: Platform.OS === 'android' ? 10 : 8, textAlignVertical: 'top' },
   sendButton: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center', marginLeft: 8 },
 
-  // 사이드바/모달
   sidebarOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', flexDirection: 'row' },
   sidebarBackdrop: { flex: 1 },
   sidebar: { width: 280, height: '100%', position: 'absolute', left: -300, top: 0, borderRightWidth: 1 },
@@ -1056,7 +1026,6 @@ const styles = StyleSheet.create({
   logoutButton: { justifyContent: 'center', alignItems: 'center', paddingVertical: 13, paddingHorizontal: 13, borderRadius: 10, borderWidth: 1 },
   logoutText: { fontSize: 16, color: '#fff', fontWeight: '700' },
 
-  // 공통 모달
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 },
   imagePickerModal: {
     borderRadius: 16,
@@ -1074,16 +1043,7 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 20, fontWeight: '800' },
   modalCloseButton: { width: 32, height: 32, justifyContent: 'center', alignItems: 'center', borderRadius: 16 },
   modalSubtitle: { fontSize: 14, marginBottom: 18, textAlign: 'center' },
-  imagePickerOptions: { gap: 10, marginBottom: 18 },
-  imagePickerOption: { flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 12, borderWidth: 1 },
-  optionIconContainer: { width: 48, height: 48, borderRadius: 24, justifyContent: 'center', alignItems: 'center', marginRight: 14 },
-  optionContent: { flex: 1 },
-  optionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 2 },
-  optionDescription: { fontSize: 13 },
-  modalCancelButton: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8, borderWidth: 1, alignItems: 'center' },
-  modalCancelText: { fontSize: 16, fontWeight: '600' },
 
-  // 로그아웃 모달
   logoutConfirmModal: {
     borderRadius: 16,
     padding: 24,
@@ -1102,6 +1062,15 @@ const styles = StyleSheet.create({
   logoutCancelText: { fontSize: 16, fontWeight: '700' },
   logoutConfirmButton: { flex: 1, padding: 14, borderRadius: 8, marginLeft: 8, alignItems: 'center' },
   logoutConfirmText: { fontSize: 16, color: '#fff', fontWeight: '800' },
+
+  imagePickerOptions: { gap: 10, marginBottom: 18 },
+  imagePickerOption: { flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 12, borderWidth: 1 },
+  optionIconContainer: { width: 48, height: 48, borderRadius: 24, justifyContent: 'center', alignItems: 'center', marginRight: 14 },
+  optionContent: { flex: 1 },
+  optionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 2 },
+  optionDescription: { fontSize: 13 },
+  modalCancelButton: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8, borderWidth: 1, alignItems: 'center' },
+  modalCancelText: { fontSize: 16, fontWeight: '600' },
 });
 
 export default ChatBotScreen;

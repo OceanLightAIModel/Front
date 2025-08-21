@@ -1,7 +1,4 @@
 import { getUserProfile, updateUserPrefs, deleteUserAccount } from './api';
-
-const [profileEmail, setProfileEmail] = useState('');
-// components/SettingsScreen.tsx
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -15,10 +12,11 @@ import {
   BackHandler,
   Modal,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
 interface SettingsScreenProps {
-  navigation: { goBack: () => void; goToPrivacyPolicy?: () => void };
+  navigation: { goBack: () => void; goToPrivacyPolicy?: () => void; goToLogin?: () => void };
   chatTheme: boolean;
   setChatTheme: (v: boolean) => void;
   darkMode: boolean;
@@ -32,13 +30,52 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
   darkMode,
   setDarkMode,
 }) => {
+  const [profileEmail, setProfileEmail] = useState<string>('');
   const [privacy, setPrivacy] = useState({ dataSharing: false, analytics: true });
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [errorModal, setErrorModal] = useState<{ visible: boolean; title: string; message: string }>({
+    visible: false,
+    title: '',
+    message: '',
+  });
 
-  const handleChatThemeChange = (value: boolean) => setChatTheme(value);
-  const handleDarkModeChange = (value: boolean) => setDarkMode(value);
+  // 초기 진입 시 백엔드에서 프로필 정보(이메일, 테마, 다크모드)를 가져옵니다.
+  useEffect(() => {
+    async function fetchUser() {
+      try {
+        const res = await getUserProfile();
+        const user = res.data?.user ?? res.data;
+        setProfileEmail(user?.email ?? '');
+        setChatTheme(user.chat_theme);
+        setDarkMode(user.dark_mode);
+      } catch (e) {
+        console.error('프로필 불러오기 실패:', e);
+      }
+    }
+    fetchUser();
+  }, []);
 
-  // 하드웨어 뒤로가기
+  // 테마(고양이/강아지) 설정 변경 시 백엔드에 저장
+  const handleChatThemeChange = async (value: boolean) => {
+    setChatTheme(value);
+    try {
+      await updateUserPrefs({ chat_theme: value });
+    } catch (e) {
+      console.error('테마 업데이트 실패', e);
+    }
+  };
+
+  // 다크모드 설정 변경 시 백엔드에 저장
+  const handleDarkModeChange = async (value: boolean) => {
+    setDarkMode(value);
+    try {
+      await updateUserPrefs({ dark_mode: value });
+    } catch (e) {
+      console.error('다크모드 업데이트 실패', e);
+    }
+  };
+
+  // 하드웨어 뒤로가기 버튼 처리
   useEffect(() => {
     const backAction = () => {
       navigation?.goBack?.();
@@ -51,10 +88,11 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const handlePrivacyChange = (key: keyof typeof privacy, value: boolean) =>
     setPrivacy(prev => ({ ...prev, [key]: value }));
 
+  // 설정 섹션 정의
   const settingSections = [
     {
       title: '내 정보',
-      items: [{ key: 'profile', title: '내 정보', subtitle: '1234@1234.com', type: 'profile' }],
+      items: [{ key: 'profile', title: '내 정보', subtitle: profileEmail, type: 'profile' }],
     },
     {
       title: '앱 설정',
@@ -138,6 +176,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
     },
   ] as const;
 
+  // 각 설정 항목 렌더링
   const renderSettingItem = (item: any) => {
     switch (item.type) {
       case 'profile':
@@ -171,7 +210,6 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 </Text>
               </View>
             </View>
-            {/* 파란 스위치 */}
             <Switch
               value={item.value}
               onValueChange={item.onChange}
@@ -294,7 +332,12 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
       </ScrollView>
 
       {/* 계정 삭제 모달 */}
-      <Modal visible={showDeleteModal} transparent animationType="fade" onRequestClose={() => setShowDeleteModal(false)}>
+      <Modal
+        visible={showDeleteModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDeleteModal(false)}
+      >
         <View style={styles.modalOverlay}>
           <View style={[styles.modalCard, darkMode && styles.modalCardDark]}>
             <MaterialIcons
@@ -316,12 +359,59 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalBtn, styles.modalDeleteBtn]}
-                onPress={() => {
-                  // TODO: 실제 삭제 로직 연결
-                  setShowDeleteModal(false);
+                onPress={async () => {
+                  try {
+                    await deleteUserAccount();
+                    await AsyncStorage.removeItem('accessToken');
+                    await AsyncStorage.removeItem('refreshToken');
+                    setShowDeleteModal(false);
+                    // 계정 삭제 후 로그인 화면이나 초기 화면으로 이동
+                    if (navigation?.goToLogin) {
+                      navigation.goToLogin();
+                    } else {
+                      navigation.goBack();
+                    }
+                  } catch (e) {
+                    // 오류 발생 시 커스텀 알림 표시
+                    setShowDeleteModal(false);
+                    setErrorModal({
+                      visible: true,
+                      title: '오류',
+                      message: '계정을 삭제할 수 없습니다.',
+                    });
+                  }
                 }}
               >
                 <Text style={styles.modalDeleteText}>삭제</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 커스텀 오류 알림 모달 */}
+      <Modal
+        visible={errorModal.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setErrorModal({ ...errorModal, visible: false })}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, darkMode && styles.modalCardDark]}>
+            <MaterialIcons
+              name="error-outline"
+              size={28}
+              color="#dc3545"
+              style={{ alignSelf: 'center', marginBottom: 6 }}
+            />
+            <Text style={[styles.modalTitle, darkMode && styles.modalTitleDark]}>{errorModal.title}</Text>
+            <Text style={[styles.modalMessage, darkMode && styles.modalMessageDark]}>{errorModal.message}</Text>
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalDeleteBtn]}
+                onPress={() => setErrorModal({ ...errorModal, visible: false })}
+              >
+                <Text style={styles.modalDeleteText}>확인</Text>
               </TouchableOpacity>
             </View>
           </View>
