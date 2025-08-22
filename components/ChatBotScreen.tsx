@@ -12,13 +12,12 @@ import {
   ScrollView,
   Modal,
   Animated,
-  Dimensions,
   BackHandler,
-  Alert,
   PermissionsAndroid,
   Keyboard,
   FlatList,
   KeyboardAvoidingView,
+  Alert as RNAlert, // RN 기본 알림은 일부 옵션 메뉴에만 사용
 } from 'react-native';
 
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -34,6 +33,11 @@ import {
   getUserProfile
 } from './api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import RNFS from 'react-native-fs';
+
+// ====== 온디바이스 모델 URL/파일명 설정 ======
+const MODEL_FILE_NAME = 'kogpt.Q3_K_M.gguf';
+const MODEL_URL = 'https://oceanaimodel.s3.ap-northeast-2.amazonaws.com/kogpt.Q3_K_M.gguf';
 
 type Message = {
   id: string;
@@ -41,6 +45,18 @@ type Message = {
   sender: 'user' | 'bot';
   timestamp: Date;
   image?: string;
+};
+
+type ModelState = 'checking' | 'idle' | 'downloading' | 'ready' | 'error';
+
+type AppAlertConfig = {
+  visible: boolean;
+  title: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+  onConfirm?: () => void;
+  onCancel?: () => void;
 };
 
 const PALETTE = {
@@ -51,7 +67,7 @@ const PALETTE = {
     text: '#1F2937',
     subtext: '#6B7280',
     primary: '#0080ff',
-    primaryPressed: '#0080ff',
+    primaryPressed: '#0073e6',
     bubbleUserText: '#FFFFFF',
     bubbleBot: '#FFFFFF',
     chipBg: '#EFF6F3',
@@ -59,6 +75,7 @@ const PALETTE = {
     spinner: '#0080ff',
     cursor: '#0080ff',
     headerBg: '#FFFFFF',
+    danger: '#dc3545',
   },
   dark: {
     bg: '#17191C',
@@ -67,7 +84,7 @@ const PALETTE = {
     text: '#E5E7EB',
     subtext: '#9CA3AF',
     primary: '#0080ff',
-    primaryPressed: '#0080ff',
+    primaryPressed: '#0073e6',
     bubbleUserText: '#FFFFFF',
     bubbleBot: '#23262A',
     chipBg: '#1F2426',
@@ -75,6 +92,7 @@ const PALETTE = {
     spinner: '#0080ff',
     cursor: '#0080ff',
     headerBg: '#2B2F33',
+    danger: '#ff6b6b',
   },
 };
 
@@ -83,7 +101,6 @@ const INPUT_BAR_MIN_HEIGHT = 64;
 const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
   const insets = useSafeAreaInsets();
   const theme = useMemo(() => (darkMode ? PALETTE.dark : PALETTE.light), [darkMode]);
-  const { width: screenWidth } = Dimensions.get('window');
 
   const [threadId, setThreadId] = useState<number | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -95,10 +112,11 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
   const [imagePickerVisible, setImagePickerVisible] = useState(false);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
   const [chatStartTime, setChatStartTime] = useState<Date | null>(null);
-  const [headerHeight, setHeaderHeight] = useState<number>(64);
   const [username, setUsername] = useState<string>('');
   const [threads, setThreads] = useState<Array<{ thread_id: number; thread_title: string }>>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<number | null>(null);
+
+  // 이름 변경 모달
   const [renameModalVisible, setRenameModalVisible] = useState(false);
   const [newTitle, setNewTitle] = useState('');
 
@@ -107,26 +125,46 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
   const spinnerAnimation = useRef(new Animated.Value(0)).current;
   const cursorAnimation = useRef(new Animated.Value(1)).current;
 
-  // ★ 추가: 키보드 열림/닫힘 상태
+  // 키보드 상태
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  // ====== 커스텀 App Alert 상태 ======
+  const [appAlert, setAppAlert] = useState<AppAlertConfig>({
+    visible: false,
+    title: '',
+    message: '',
+    confirmText: '확인',
+  });
+
+  const openAlert = (cfg: Omit<AppAlertConfig, 'visible'>) => {
+    setAppAlert({ visible: true, ...cfg });
+  };
+  const closeAlert = () => setAppAlert(prev => ({ ...prev, visible: false }));
+
+  // ====== 모델 다운로드/상태 ======
+  const [modelState, setModelState] = useState<ModelState>('checking');
+  const [modelPath, setModelPath] = useState<string>('');
+  const [downloadProgress, setDownloadProgress] = useState<number>(0);
+  const [downloadModalVisible, setDownloadModalVisible] = useState<boolean>(false);
+  const [downloadJobId, setDownloadJobId] = useState<number | null>(null);
 
   const quickActions = [
     { icon: 'camera-alt', title: '동물 사진 분석', description: '반려동물 사진을 업로드하여 건강 상태를 분석해보세요' },
     { icon: 'pets', title: '펫 헬스케어', description: '사료, 증상, 생활습관 등 무엇이든 물어보세요' },
   ];
 
+  // 공통
   const scrollToEnd = (animated = true) => {
     requestAnimationFrame(() => {
       flatListRef.current?.scrollToEnd({ animated });
     });
   };
 
-  // 메시지 추가 시 자동 스크롤
   useEffect(() => {
     if (messages.length > 0) setTimeout(() => scrollToEnd(true), 80);
   }, [messages]);
 
-  // ★ 변경: 키보드 이벤트에서 스크롤 보정 + 가시성 상태 동시 관리
+  // 키보드 이벤트
   useEffect(() => {
     const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
@@ -215,6 +253,91 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
     }
   }, [isTyping, isDiagnosing, cursorAnimation]);
 
+  // ====== 모델 준비 체크 (진입 시) ======
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const dest = `${RNFS.DocumentDirectoryPath}/${MODEL_FILE_NAME}`;
+        setModelPath(dest);
+        const exists = await RNFS.exists(dest);
+        if (exists) {
+          setModelState('ready');
+        } else {
+          setModelState('idle');
+          // 사용자에게 다운로드 여부 안내
+          openAlert({
+            title: '온디바이스 모델 다운로드',
+            message: '로컬에서 동작하는 AI 모델(약 700MB)을 다운로드합니다.\n데이터 사용량이 크니 Wi‑Fi를 권장해요.',
+            cancelText: '나중에',
+            confirmText: '다운로드',
+            onConfirm: () => { closeAlert(); startDownload(); },
+            onCancel: () => closeAlert(),
+          });
+        }
+      } catch (e) {
+        console.error(e);
+        setModelState('error');
+        openAlert({
+          title: '오류',
+          message: '모델 상태 확인에 실패했습니다. 네트워크 상태를 확인해 주세요.',
+          confirmText: '확인',
+        });
+      }
+    };
+    check();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ====== 모델 다운로드 / 취소 ======
+  const startDownload = async () => {
+    if (!modelPath) return;
+    try {
+      setDownloadProgress(0);
+      setModelState('downloading');
+      setDownloadModalVisible(true);
+
+      const task = RNFS.downloadFile({
+        fromUrl: MODEL_URL,
+        toFile: modelPath,
+        progress: (data) => {
+          const total = data.contentLength || 0;
+          const written = data.bytesWritten || 0;
+          const p = total > 0 ? written / total : 0;
+          setDownloadProgress(p);
+        },
+        progressDivider: 5,
+      });
+      setDownloadJobId(task.jobId);
+      await task.promise;
+      setDownloadModalVisible(false);
+      setModelState('ready');
+      setDownloadJobId(null);
+      openAlert({
+        title: '완료',
+        message: '온디바이스 모델이 준비됐습니다.',
+        confirmText: '확인',
+      });
+    } catch (e) {
+      console.error('다운로드 실패:', e);
+      setDownloadModalVisible(false);
+      setModelState('idle');
+      setDownloadJobId(null);
+      openAlert({
+        title: '다운로드 실패',
+        message: '네트워크 상태를 확인한 후 다시 시도해 주세요.',
+        confirmText: '확인',
+      });
+    }
+  };
+
+  const cancelDownload = () => {
+    if (downloadJobId) {
+      RNFS.stopDownload(downloadJobId);
+    }
+    setDownloadModalVisible(false);
+    setModelState('idle');
+  };
+
   const toggleSidebar = () => {
     if (sidebarVisible) {
       Animated.timing(sidebarAnimation, { toValue: -300, duration: 280, useNativeDriver: false }).start(() =>
@@ -243,7 +366,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
       );
     } catch (e) {
       console.error('메시지 불러오기 실패:', e);
-      Alert.alert('오류', '채팅을 열 수 없습니다.');
+      openAlert({ title: '오류', message: '채팅을 열 수 없습니다.', confirmText: '확인' });
     }
     toggleSidebar();
   };
@@ -260,7 +383,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
       setSelectedThreadId(createdThread.thread_id);
     } catch (e) {
       console.error('새 채팅 생성 실패:', e);
-      Alert.alert('오류', '새 채팅을 시작할 수 없습니다.');
+      openAlert({ title: '오류', message: '새 채팅을 시작할 수 없습니다.', confirmText: '확인' });
     }
   };
 
@@ -276,7 +399,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
     if (!chatStartTime) setChatStartTime(new Date());
   };
 
-  // ===== 이미지/메시지 전송 =====
+  // ===== 권한/이미지 =====
   const requestCameraPermission = async () => {
     if (Platform.OS !== 'android') return true;
     try {
@@ -287,9 +410,14 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
         buttonNegative: '취소',
         buttonPositive: '확인',
       });
-      return granted === PermissionsAndroid.RESULTS.GRANTED;
+      const ok = granted === PermissionsAndroid.RESULTS.GRANTED;
+      if (!ok) {
+        openAlert({ title: '권한 필요', message: '카메라 사용을 위해 권한이 필요합니다.', confirmText: '확인' });
+      }
+      return ok;
     } catch (e) {
       console.warn(e);
+      openAlert({ title: '오류', message: '권한 요청 중 문제가 발생했습니다.', confirmText: '확인' });
       return false;
     }
   };
@@ -309,10 +437,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
   const pickImageFromCamera = async () => {
     setImagePickerVisible(false);
     const ok = await requestCameraPermission();
-    if (!ok) {
-      Alert.alert('권한 필요', '카메라 사용을 위해 권한이 필요합니다.');
-      return;
-    }
+    if (!ok) return;
     const options = { mediaType: 'photo' as MediaType, includeBase64: false, maxHeight: 2000, maxWidth: 2000 };
     launchCamera(options, (res: ImagePickerResponse) => {
       if (res.didCancel || res.errorMessage) return;
@@ -404,6 +529,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
     }, 1200);
   };
 
+  // ▼ (임시) 규칙 기반 응답 — 실제 온디바이스 모델 연동 시 이 함수를 LLM 호출로 대체
   const generateBotResponse = (msg: string): string => {
     const m = msg.toLowerCase();
     if (m.includes('안녕') || m.includes('hello') || m.includes('도움')) {
@@ -597,7 +723,8 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
                     <TouchableOpacity
                       style={{ paddingHorizontal: 16, paddingVertical: 10 }}
                       onPress={() => {
-                        Alert.alert(
+                        // 옵션은 RNAlert로 유지(다중 버튼)
+                        RNAlert.alert(
                           '채팅 옵션',
                           '',
                           [
@@ -623,7 +750,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
                                   }
                                 } catch (e) {
                                   console.error('삭제 실패:', e);
-                                  Alert.alert('오류', '채팅을 삭제할 수 없습니다.');
+                                  openAlert({ title: '오류', message: '채팅을 삭제할 수 없습니다.', confirmText: '확인' });
                                 }
                               },
                               style: 'destructive',
@@ -643,7 +770,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
 
             <View style={[styles.sidebarBottom, { borderTopColor: theme.border }]} >
               <TouchableOpacity
-                style={[styles.logoutButton, { backgroundColor: '#dc3545', borderColor: theme.border }]}
+                style={[styles.logoutButton, { backgroundColor: theme.danger, borderColor: theme.border }]}
                 onPress={() => setLogoutModalVisible(true)}
               >
                 <Text style={styles.logoutText}>로그아웃</Text>
@@ -721,8 +848,8 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
       <View style={styles.modalOverlay}>
         <View style={[styles.logoutConfirmModal, { backgroundColor: theme.surface }]}>
           <View style={styles.modalHeader}>
-            <MaterialIcons name="logout" size={32} color="#ff6b6b" />
-            <Text style={[styles.logoutModalTitle, { color: '#ff6b6b' }]}>로그아웃</Text>
+            <MaterialIcons name="logout" size={32} color={theme.danger} />
+            <Text style={[styles.logoutModalTitle, { color: theme.danger }]}>로그아웃</Text>
           </View>
           <Text style={[styles.logoutModalMessage, { color: theme.subtext }]}>
             정말로 로그아웃 하시겠습니까?{'\n'}현재 채팅 내용이 저장되지 않을 수 있습니다.
@@ -735,7 +862,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
               <Text style={[styles.logoutCancelText, { color: theme.subtext }]}>취소</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.logoutConfirmButton, { backgroundColor: '#dc3545' }]}
+              style={[styles.logoutConfirmButton, { backgroundColor: theme.danger }]}
               onPress={() => {
                 setLogoutModalVisible(false);
                 toggleSidebar();
@@ -743,6 +870,106 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
               }}
             >
               <Text style={styles.logoutConfirmText}>로그아웃</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  // 커스텀 App Alert
+  const renderAppAlert = () => (
+    <Modal visible={appAlert.visible} transparent animationType="fade" onRequestClose={closeAlert}>
+      <View style={styles.modalOverlay}>
+        <View style={[styles.appAlert, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <Text style={[styles.appAlertTitle, { color: theme.text }]}>{appAlert.title}</Text>
+          <Text style={[styles.appAlertMessage, { color: theme.subtext }]}>{appAlert.message}</Text>
+          <View style={styles.appAlertButtons}>
+            {appAlert.cancelText ? (
+              <TouchableOpacity
+                style={[styles.appAlertButton, { backgroundColor: darkMode ? '#2B2F33' : '#F3F5F7', borderColor: theme.border }]}
+                onPress={() => { closeAlert(); appAlert.onCancel?.(); }}
+              >
+                <Text style={[styles.appAlertButtonText, { color: theme.subtext }]}>{appAlert.cancelText}</Text>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity
+              style={[styles.appAlertButtonPrimary, { backgroundColor: theme.primary }]}
+              onPress={() => { closeAlert(); appAlert.onConfirm?.(); }}
+            >
+              <Text style={styles.appAlertButtonPrimaryText}>{appAlert.confirmText || '확인'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  // 모델 다운로드 진행률 모달
+  const renderDownloadModal = () => (
+    <Modal visible={downloadModalVisible} transparent animationType="fade" onRequestClose={cancelDownload}>
+      <View style={styles.modalOverlay}>
+        <View style={[styles.downloadModal, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+            <MaterialIcons name="cloud-download" size={22} color={theme.primary} style={{ marginRight: 8 }} />
+            <Text style={[styles.modalTitle, { color: theme.text }]}>모델 다운로드 중...</Text>
+          </View>
+          <Text style={[styles.modalSubtitle, { color: theme.subtext, marginBottom: 12 }]}>
+            {Math.round(downloadProgress * 100)}%
+          </Text>
+          <View style={[styles.progressBar, { backgroundColor: darkMode ? '#30353a' : '#EEF1F4', borderColor: theme.border }]}>
+            <View style={[styles.progressFill, { width: `${Math.round(downloadProgress * 100)}%`, backgroundColor: theme.primary }]} />
+          </View>
+
+          <View style={{ flexDirection: 'row', marginTop: 16 }}>
+            <TouchableOpacity
+              style={[styles.modalCancelButton, { backgroundColor: darkMode ? '#2B2F33' : '#F3F5F7', borderColor: theme.border, flex: 1 }]}
+              onPress={cancelDownload}
+            >
+              <Text style={[styles.modalCancelText, { color: theme.subtext }]}>취소</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  // 이름 변경 모달
+  const renderRenameModal = () => (
+    <Modal visible={renameModalVisible} transparent animationType="fade" onRequestClose={() => setRenameModalVisible(false)}>
+      <View style={styles.modalOverlay}>
+        <View style={[styles.renameModal, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <Text style={[styles.modalTitle, { color: theme.text }]}>채팅 이름 변경</Text>
+          <TextInput
+            style={[styles.renameInput, { color: theme.text, borderColor: theme.border, backgroundColor: darkMode ? '#1F2426' : '#F6F8FA' }]}
+            placeholder="새 제목 입력"
+            placeholderTextColor={theme.subtext}
+            value={newTitle}
+            onChangeText={setNewTitle}
+          />
+          <View style={{ flexDirection: 'row', marginTop: 12 }}>
+            <TouchableOpacity
+              style={[styles.modalCancelButton, { backgroundColor: darkMode ? '#2B2F33' : '#F3F5F7', borderColor: theme.border, flex: 1 }]}
+              onPress={() => setRenameModalVisible(false)}
+            >
+              <Text style={[styles.modalCancelText, { color: theme.subtext }]}>취소</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.appAlertButtonPrimary, { backgroundColor: theme.primary, flex: 1, marginLeft: 8 }]}
+              onPress={async () => {
+                if (!selectedThreadId || !newTitle.trim()) return;
+                try {
+                  await updateThread(selectedThreadId, newTitle.trim()); // <- 프로젝트 API 시그니처에 맞게 필요 시 조정
+                  const updated = await getThreads();
+                  setThreads(updated.data);
+                  setRenameModalVisible(false);
+                } catch (e) {
+                  console.error(e);
+                  openAlert({ title: '오류', message: '이름을 변경할 수 없습니다.', confirmText: '확인' });
+                }
+              }}
+            >
+              <Text style={styles.appAlertButtonPrimaryText}>저장</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -758,14 +985,16 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
       {renderSidebar()}
       {renderImagePickerModal()}
       {renderLogoutModal()}
+      {renderAppAlert()}
+      {renderDownloadModal()}
+      {renderRenameModal()}
 
-      {/* 헤더 (고정) */}
+      {/* 헤더 */}
       <View
         style={[
           styles.header,
           { backgroundColor: theme.headerBg, borderBottomColor: theme.border },
         ]}
-        onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
       >
         <View style={styles.headerLeft}>
           <TouchableOpacity style={styles.menuButton} onPress={toggleSidebar}>
@@ -792,11 +1021,10 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
       </View>
 
       {/* 본문+입력창 */}
-      {/* ★ 변경: Android도 KeyboardAvoidingView 적용 (height), iOS는 padding */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={0}  // 헤더는 KAV 밖이라 오프셋 불필요
+        behavior="padding"              // ← iOS/Android 모두 padding으로 통일 (떠 보이는 문제 방지)
+        keyboardVerticalOffset={0}
       >
         <View style={{ flex: 1 }}>
           {messages.length === 0 ? (
@@ -804,8 +1032,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
               style={{ flex: 1 }}
               contentContainerStyle={[
                 styles.welcomeContent,
-                // ★ 변경: 키보드 열림 시 하단 여백 축소(세이프에어리어 제외)
-                { paddingBottom: isKeyboardVisible ? 8 : 40 + (insets.bottom || 0) }
+                { paddingBottom: 40 + (insets.bottom || 0) } // ← 고정값으로 변경
               ]}
               showsVerticalScrollIndicator={false}
             >
@@ -823,6 +1050,36 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
                   />
                 </View>
                 <Text style={[styles.welcomeTitle, { color: theme.text }]}>무엇을 도와드릴까요?</Text>
+
+                {/* 모델 상태 배지/버튼 */}
+                {modelState === 'ready' ? (
+                  <View style={[styles.readyBadge, { backgroundColor: theme.chipBg }]}>
+                    <MaterialIcons name="check-circle" size={16} color={theme.chipText} style={{ marginRight: 6 }} />
+                    <Text style={{ color: theme.chipText, fontWeight: '700' }}>온디바이스 모델 준비 완료</Text>
+                  </View>
+                ) : modelState === 'downloading' ? (
+                  <View style={[styles.downloadCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                      <MaterialIcons name="cloud-download" size={20} color={theme.primary} style={{ marginRight: 8 }} />
+                      <Text style={{ color: theme.text, fontWeight: '700' }}>다운로드 중...</Text>
+                    </View>
+                    <View style={[styles.progressBar, { backgroundColor: darkMode ? '#30353a' : '#EEF1F4', borderColor: theme.border }]}>
+                      <View style={[styles.progressFill, { width: `${Math.round(downloadProgress * 100)}%`, backgroundColor: theme.primary }]} />
+                    </View>
+                    <Text style={{ color: theme.subtext, marginTop: 6 }}>{Math.round(downloadProgress * 100)}%</Text>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={[styles.downloadCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                    onPress={startDownload}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <MaterialIcons name="cloud-download" size={20} color={theme.primary} style={{ marginRight: 8 }} />
+                      <Text style={{ color: theme.text, fontWeight: '700' }}>온디바이스 모델 다운로드</Text>
+                    </View>
+                    <Text style={{ color: theme.subtext, marginTop: 6 }}>약 700MB • Wi‑Fi 권장</Text>
+                  </TouchableOpacity>
+                )}
               </View>
 
               <View style={styles.quickActionsContainer}>
@@ -853,8 +1110,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
               keyExtractor={(item) => item.id}
               contentContainerStyle={{
                 padding: 15,
-                // ★ 변경: 키보드 열림 시 세이프에어리어 여백을 빼서 바짝 붙게
-                paddingBottom: INPUT_BAR_MIN_HEIGHT + 8 + (isKeyboardVisible ? 0 : (insets.bottom || 0)),
+                paddingBottom: INPUT_BAR_MIN_HEIGHT + 8 + (insets.bottom || 0), // ← 고정값으로 변경
               }}
               ListHeaderComponent={
                 chatStartTime ? (
@@ -881,8 +1137,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
             {
               backgroundColor: theme.surface,
               borderTopColor: theme.border,
-              // ★ 변경: 키보드가 열리면 하단 패딩 0으로(키보드 바로 위에!)
-              paddingBottom: isKeyboardVisible ? 0 : (insets.bottom || 0),
+              paddingBottom: (insets.bottom || 0), // ← 항상 세이프에어리어만 반영
               minHeight: INPUT_BAR_MIN_HEIGHT,
             },
           ]}
@@ -954,11 +1209,35 @@ const styles = StyleSheet.create({
   profileIconContainer: { width: 35, height: 35, borderRadius: 17.5, justifyContent: 'center', alignItems: 'center', marginLeft: 8 },
 
   welcomeContent: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20, paddingBottom: 40 },
-  logoSection: { alignItems: 'center', marginBottom: 28 },
-  logoContainer: { width: 84, height: 84, borderRadius: 42, justifyContent: 'center', alignItems: 'center', marginBottom: 16, borderWidth: 1 },
+  logoSection: { alignItems: 'center', marginBottom: 18 },
+  logoContainer: { width: 84, height: 84, borderRadius: 42, justifyContent: 'center', alignItems: 'center', marginBottom: 12, borderWidth: 1 },
   logoImage: { width: 60, height: 60 },
-  welcomeTitle: { fontSize: 22, fontWeight: '800' },
-  quickActionsContainer: { width: '100%', gap: 12, paddingHorizontal: 16 },
+  welcomeTitle: { fontSize: 22, fontWeight: '800', marginBottom: 8 },
+
+  // 모델 상태 카드/배지/프로그레스
+  readyBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 8, borderRadius: 999, marginTop: 6 },
+  downloadCard: {
+    marginTop: 8,
+    width: '100%',
+    maxWidth: 340,
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+  },
+  progressBar: {
+    width: 280,
+    height: 10,
+    borderRadius: 6,
+    overflow: 'hidden',
+    borderWidth: 1,
+    alignSelf: 'center',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 6,
+  },
+
+  quickActionsContainer: { width: '100%', gap: 12, paddingHorizontal: 16, marginTop: 14 },
   quickActionCard: {
     borderRadius: 14,
     padding: 18,
@@ -1027,6 +1306,7 @@ const styles = StyleSheet.create({
   logoutText: { fontSize: 16, color: '#fff', fontWeight: '700' },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+
   imagePickerModal: {
     borderRadius: 16,
     padding: 24,
@@ -1042,7 +1322,19 @@ const styles = StyleSheet.create({
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   modalTitle: { fontSize: 20, fontWeight: '800' },
   modalCloseButton: { width: 32, height: 32, justifyContent: 'center', alignItems: 'center', borderRadius: 16 },
-  modalSubtitle: { fontSize: 14, marginBottom: 18, textAlign: 'center' },
+  modalSubtitle: { fontSize: 14, marginBottom: 12, textAlign: 'center' },
+
+  // ✅ 누락되었던 이미지 피커 옵션 스타일들 복원
+  imagePickerOptions: { gap: 10, marginBottom: 18, width: '100%' },
+  imagePickerOption: { flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 12, borderWidth: 1 },
+  optionIconContainer: { width: 48, height: 48, borderRadius: 24, justifyContent: 'center', alignItems: 'center', marginRight: 14 },
+  optionContent: { flex: 1 },
+  optionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 2 },
+  optionDescription: { fontSize: 13 },
+
+  // 이 버튼/텍스트도 일부 모달에서 재사용
+  modalCancelButton: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8, borderWidth: 1, alignItems: 'center' },
+  modalCancelText: { fontSize: 16, fontWeight: '600' },
 
   logoutConfirmModal: {
     borderRadius: 16,
@@ -1063,14 +1355,59 @@ const styles = StyleSheet.create({
   logoutConfirmButton: { flex: 1, padding: 14, borderRadius: 8, marginLeft: 8, alignItems: 'center' },
   logoutConfirmText: { fontSize: 16, color: '#fff', fontWeight: '800' },
 
-  imagePickerOptions: { gap: 10, marginBottom: 18 },
-  imagePickerOption: { flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 12, borderWidth: 1 },
-  optionIconContainer: { width: 48, height: 48, borderRadius: 24, justifyContent: 'center', alignItems: 'center', marginRight: 14 },
-  optionContent: { flex: 1 },
-  optionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 2 },
-  optionDescription: { fontSize: 13 },
-  modalCancelButton: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8, borderWidth: 1, alignItems: 'center' },
-  modalCancelText: { fontSize: 16, fontWeight: '600' },
+  // 커스텀 App Alert
+  appAlert: {
+    borderRadius: 16,
+    padding: 20,
+    width: '100%',
+    maxWidth: 340,
+    borderWidth: 1,
+  },
+  appAlertTitle: { fontSize: 18, fontWeight: '800', marginBottom: 8, textAlign: 'center' },
+  appAlertMessage: { fontSize: 14, lineHeight: 20, textAlign: 'center' },
+  appAlertButtons: { flexDirection: 'row', marginTop: 14 },
+  appAlertButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  appAlertButtonText: { fontSize: 15, fontWeight: '700' },
+  appAlertButtonPrimary: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  appAlertButtonPrimaryText: { fontSize: 15, fontWeight: '800', color: '#fff' },
+
+  // 다운로드 모달
+  downloadModal: {
+    borderRadius: 16,
+    padding: 20,
+    width: '100%',
+    maxWidth: 360,
+    borderWidth: 1,
+  },
+
+  // 이름 변경 모달
+  renameModal: {
+    borderRadius: 16,
+    padding: 20,
+    width: '100%',
+    maxWidth: 360,
+    borderWidth: 1,
+  },
+  renameInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.OS === 'android' ? 10 : 8,
+    fontSize: 15,
+    marginTop: 10,
+  },
 });
 
 export default ChatBotScreen;
