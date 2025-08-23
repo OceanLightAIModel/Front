@@ -13,16 +13,14 @@ import {
   Modal,
   Animated,
   BackHandler,
-  PermissionsAndroid,
   Keyboard,
   FlatList,
   KeyboardAvoidingView,
-  Alert as RNAlert, // RN 기본 알림은 일부 옵션 메뉴에만 사용
+  Alert as RNAlert,
 } from 'react-native';
 
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
-import { launchImageLibrary, launchCamera, ImagePickerResponse, MediaType } from 'react-native-image-picker';
 import {
   createThread,
   sendMessage,
@@ -30,21 +28,35 @@ import {
   getMessages,
   updateThread,
   deleteThread,
-  getUserProfile
+  getUserProfile,
 } from './api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import RNFS from 'react-native-fs';
 
-// ====== 온디바이스 모델 URL/파일명 설정 ======
+// ===== 온디바이스 모델 파일/URL =====
 const MODEL_FILE_NAME = 'kogpt.Q3_K_M.gguf';
-const MODEL_URL = 'https://oceanaimodel.s3.ap-northeast-2.amazonaws.com/kogpt.Q3_K_M.gguf';
+// ✅ 백엔드(FASTAPI)에서 서명 URL을 주는 엔드포인트로 교체하세요.
+const MODEL_SIGNED_URL_API = 'https://15.164.104.195:8000/model/url';
+// 대략 크기(바이트). 공간 체크/검증용
+const MODEL_SIZE_BYTES = 700 * 1024 * 1024;
+
+// llama.rn이 제공하는 stop 토큰들
+const STOP_WORDS = [
+  '</s>',
+  '<|end|>',
+  '<|eot_id|>',
+  '<|end_of_text|>',
+  '<|im_end|>',
+  '<|EOT|>',
+  '<|end_of_turn|>',
+  '<|endoftext|>',
+];
 
 type Message = {
   id: string;
   text: string;
   sender: 'user' | 'bot';
   timestamp: Date;
-  image?: string;
 };
 
 type ModelState = 'checking' | 'idle' | 'downloading' | 'ready' | 'error';
@@ -101,6 +113,7 @@ const INPUT_BAR_MIN_HEIGHT = 64;
 const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
   const insets = useSafeAreaInsets();
   const theme = useMemo(() => (darkMode ? PALETTE.dark : PALETTE.light), [darkMode]);
+  const isIOS = Platform.OS === 'ios';
 
   const [threadId, setThreadId] = useState<number | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -109,26 +122,11 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
   const [isDiagnosing, setIsDiagnosing] = useState(false);
   const [typingText, setTypingText] = useState('');
   const [sidebarVisible, setSidebarVisible] = useState(false);
-  const [imagePickerVisible, setImagePickerVisible] = useState(false);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
   const [chatStartTime, setChatStartTime] = useState<Date | null>(null);
   const [username, setUsername] = useState<string>('');
   const [threads, setThreads] = useState<Array<{ thread_id: number; thread_title: string }>>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<number | null>(null);
-
-  // 이름 변경 모달
-  const [renameModalVisible, setRenameModalVisible] = useState(false);
-  const [newTitle, setNewTitle] = useState('');
-
-  const flatListRef = useRef<FlatList<Message>>(null);
-  const sidebarAnimation = useRef(new Animated.Value(-300)).current;
-  const spinnerAnimation = useRef(new Animated.Value(0)).current;
-  const cursorAnimation = useRef(new Animated.Value(1)).current;
-
-  // 키보드 상태
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
-
-  // ====== 커스텀 App Alert 상태 ======
   const [appAlert, setAppAlert] = useState<AppAlertConfig>({
     visible: false,
     title: '',
@@ -136,39 +134,47 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
     confirmText: '확인',
   });
 
-  const openAlert = (cfg: Omit<AppAlertConfig, 'visible'>) => {
-    setAppAlert({ visible: true, ...cfg });
-  };
-  const closeAlert = () => setAppAlert(prev => ({ ...prev, visible: false }));
+  const flatListRef = useRef<FlatList<Message>>(null);
+  const sidebarAnimation = useRef(new Animated.Value(-300)).current;
+  const spinnerAnimation = useRef(new Animated.Value(0)).current;
+  const cursorAnimation = useRef(new Animated.Value(1)).current;
 
-  // ====== 모델 다운로드/상태 ======
+  // 모델 상태
   const [modelState, setModelState] = useState<ModelState>('checking');
   const [modelPath, setModelPath] = useState<string>('');
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
   const [downloadModalVisible, setDownloadModalVisible] = useState<boolean>(false);
   const [downloadJobId, setDownloadJobId] = useState<number | null>(null);
 
+  // 키보드 상태(안정화: iOS만 KAV 사용)
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  // llama.rn 컨텍스트
+  const llamaRef = useRef<any | null>(null);
+  const [llamaReady, setLlamaReady] = useState(false);
+  const initInProgressRef = useRef(false);
+
+  const openAlert = (cfg: Omit<AppAlertConfig, 'visible'>) => setAppAlert({ visible: true, ...cfg });
+  const closeAlert = () => setAppAlert((prev) => ({ ...prev, visible: false }));
+
+  // 빠른 액션(사진 항목 제거)
   const quickActions = [
-    { icon: 'camera-alt', title: '동물 사진 분석', description: '반려동물 사진을 업로드하여 건강 상태를 분석해보세요' },
     { icon: 'pets', title: '펫 헬스케어', description: '사료, 증상, 생활습관 등 무엇이든 물어보세요' },
   ];
 
-  // 공통
+  // ===== 공통 =====
   const scrollToEnd = (animated = true) => {
-    requestAnimationFrame(() => {
-      flatListRef.current?.scrollToEnd({ animated });
-    });
+    requestAnimationFrame(() => flatListRef.current?.scrollToEnd({ animated }));
   };
 
   useEffect(() => {
     if (messages.length > 0) setTimeout(() => scrollToEnd(true), 80);
   }, [messages]);
 
-  // 키보드 이벤트
+  // 키보드 이벤트 (iOS/Android 공통 스크롤 안정화, KAV는 iOS만 사용)
   useEffect(() => {
-    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-
+    const showEvt = isIOS ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = isIOS ? 'keyboardWillHide' : 'keyboardDidHide';
     const onShow = () => {
       setIsKeyboardVisible(true);
       setTimeout(() => scrollToEnd(true), 60);
@@ -177,19 +183,20 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
       setIsKeyboardVisible(false);
       setTimeout(() => scrollToEnd(false), 60);
     };
-
     const showSub = Keyboard.addListener(showEvt, onShow);
     const hideSub = Keyboard.addListener(hideEvt, onHide);
-    return () => { showSub.remove(); hideSub.remove(); };
-  }, []);
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [isIOS]);
 
   // 프로필 이름
   useEffect(() => {
-    const fetchName = async () => {
+    (async () => {
       try {
         const savedName = await AsyncStorage.getItem('username');
         if (savedName) setUsername(savedName);
-
         const res = await getUserProfile();
         const name = res.data?.username || res.data?.nickname || res.data?.userName;
         if (name) {
@@ -199,8 +206,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
       } catch (e) {
         console.error('사용자 정보 불러오기 실패:', e);
       }
-    };
-    fetchName();
+    })();
   }, []);
 
   // 뒤로 가기/사이드바
@@ -210,7 +216,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
         toggleSidebar();
         return true;
       }
-      navigation?.goBack && navigation.goBack();
+      if (navigation?.goBack) navigation.goBack();
       return true;
     };
     const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
@@ -220,23 +226,27 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
   // 스피너 애니메이션
   useEffect(() => {
     if (isDiagnosing) {
-      const loop = Animated.loop(Animated.timing(spinnerAnimation, { toValue: 1, duration: 1000, useNativeDriver: true }));
+      const loop = Animated.loop(
+        Animated.timing(spinnerAnimation, { toValue: 1, duration: 1000, useNativeDriver: true })
+      );
       loop.start();
-      return () => { loop.stop(); spinnerAnimation.setValue(0); };
+      return () => {
+        loop.stop();
+        spinnerAnimation.setValue(0);
+      };
     }
   }, [isDiagnosing, spinnerAnimation]);
 
   // 스레드 목록
   useEffect(() => {
-    const fetchThreads = async () => {
+    (async () => {
       try {
         const res = await getThreads();
         setThreads(res.data);
       } catch (e) {
         console.error('채팅 목록 불러오기 실패:', e);
       }
-    };
-    fetchThreads();
+    })();
   }, []);
 
   // 타이핑 커서
@@ -249,28 +259,41 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
         ])
       );
       blink.start();
-      return () => { blink.stop(); cursorAnimation.setValue(1); };
+      return () => {
+        blink.stop();
+        cursorAnimation.setValue(1);
+      };
     }
   }, [isTyping, isDiagnosing, cursorAnimation]);
 
-  // ====== 모델 준비 체크 (진입 시) ======
+  // ===== 모델 파일 존재/다운로드 안내 =====
   useEffect(() => {
-    const check = async () => {
+    (async () => {
       try {
         const dest = `${RNFS.DocumentDirectoryPath}/${MODEL_FILE_NAME}`;
         setModelPath(dest);
         const exists = await RNFS.exists(dest);
         if (exists) {
-          setModelState('ready');
+          const ok = await verifyModelFile(dest);
+          setModelState(ok ? 'ready' : 'idle');
+          if (!ok) {
+            openAlert({
+              title: '모델 재다운로드 필요',
+              message: '이전 다운로드 파일이 손상되었거나 불완전합니다. 다시 다운로드해 주세요.',
+              confirmText: '확인',
+            });
+          }
         } else {
           setModelState('idle');
-          // 사용자에게 다운로드 여부 안내
           openAlert({
             title: '온디바이스 모델 다운로드',
             message: '로컬에서 동작하는 AI 모델(약 700MB)을 다운로드합니다.\n데이터 사용량이 크니 Wi‑Fi를 권장해요.',
             cancelText: '나중에',
             confirmText: '다운로드',
-            onConfirm: () => { closeAlert(); startDownload(); },
+            onConfirm: () => {
+              closeAlert();
+              startDownload();
+            },
             onCancel: () => closeAlert(),
           });
         }
@@ -283,32 +306,143 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
           confirmText: '확인',
         });
       }
-    };
-    check();
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ====== 모델 다운로드 / 취소 ======
+  // ===== 파일 검증 =====
+  async function verifyModelFile(dest: string) {
+    try {
+      const stat = await RNFS.stat(dest);
+      // 600MB 이상이면 정상으로 간주 (S3/CloudFront 오류 페이지·부분 다운로드 차단)
+      if (!stat?.size || Number(stat.size) < 600 * 1024 * 1024) {
+        try { await RNFS.unlink(dest); } catch {}
+        return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // ===== 사전 HEAD 체크 (CloudFront 접근/크기 검증) =====
+  async function headCheck(url: string) {
+    try {
+      const res = await fetch(url, { method: 'HEAD' });
+      const lenStr = res.headers.get('content-length');
+      const len = lenStr ? Number(lenStr) : null;
+      return { ok: res.ok, status: res.status, length: len };
+    } catch {
+      return { ok: false, status: 0, length: null };
+    }
+  }
+
+  // ===== 저장공간 체크 & 중복 방지 =====
+  async function ensureSpaceAndSkipIfExists(dest: string) {
+    const exists = await RNFS.exists(dest);
+    if (exists) return { ok: true, reason: 'exists' as const };
+
+    const info = await RNFS.getFSInfo(); // { freeSpace, totalSpace }
+    if (!info || typeof info.freeSpace !== 'number') return { ok: true, reason: 'unknown' as const };
+
+    const required = MODEL_SIZE_BYTES * 2; // 여유 확보
+    if (info.freeSpace < required) {
+      return { ok: false, reason: 'no-space' as const, free: info.freeSpace, required };
+    }
+    return { ok: true, reason: 'enough-space' as const };
+  }
+
+  // ===== 백엔드에서 서명 URL 받기 =====
+  async function fetchSignedModelUrl(): Promise<string> {
+    const res = await fetch(MODEL_SIGNED_URL_API, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) throw new Error('서명 URL 발급 실패');
+    const data = await res.json();
+    if (!data?.url) throw new Error('서명 URL 응답에 url 필드가 없습니다.');
+    return data.url; // 예: https://dm30l2fx2jcrt.cloudfront.net/kogpt.Q3_K_M.gguf?...(signature)
+  }
+
+  // ===== 모델 다운로드 / 취소 =====
   const startDownload = async () => {
     if (!modelPath) return;
     try {
+      const check = await ensureSpaceAndSkipIfExists(modelPath);
+      if (!check.ok) {
+        openAlert({
+          title: '저장공간 부족',
+          message: '온디바이스 모델을 받기 위해 충분한 저장공간이 필요합니다.\n불필요한 파일을 지운 뒤 다시 시도해 주세요.',
+          confirmText: '확인',
+        });
+        return;
+      }
+      if (check.reason === 'exists') {
+        const ok = await verifyModelFile(modelPath);
+        setModelState(ok ? 'ready' : 'idle');
+        if (!ok) {
+          openAlert({
+            title: '모델 재다운로드 필요',
+            message: '이전 다운로드 파일이 손상되었습니다. 다시 다운로드해 주세요.',
+            confirmText: '확인',
+          });
+        }
+        return;
+      }
+
+      // ✅ 백엔드에서 CloudFront "서명 URL" 발급
+      const signedUrl = await fetchSignedModelUrl();
+
+      // HEAD 체크는 반드시 "서명 URL"로 수행 (권한/만료/크기)
+      const head = await headCheck(signedUrl);
+      if (!head.ok || (head.length !== null && head.length < 600 * 1024 * 1024)) {
+        openAlert({
+          title: 'CloudFront 접근 오류',
+          message:
+            '모델 파일에 접근할 수 없거나 파일 크기가 비정상입니다.\n' +
+            '• 서명 URL 만료/오입력 여부\n' +
+            '• CloudFront Key Group/Restrict Viewer Access 설정\n' +
+            '• S3 원본(OAC) 연결 여부\n' +
+            '를 확인해 주세요.',
+          confirmText: '확인',
+        });
+        return;
+      }
+
       setDownloadProgress(0);
       setModelState('downloading');
       setDownloadModalVisible(true);
 
       const task = RNFS.downloadFile({
-        fromUrl: MODEL_URL,
+        fromUrl: signedUrl,
         toFile: modelPath,
         progress: (data) => {
-          const total = data.contentLength || 0;
+          const total = data.contentLength || MODEL_SIZE_BYTES;
           const written = data.bytesWritten || 0;
           const p = total > 0 ? written / total : 0;
           setDownloadProgress(p);
         },
-        progressDivider: 5,
+        progressDivider: 10,
       });
       setDownloadJobId(task.jobId);
+
       await task.promise;
+
+      const ok = await verifyModelFile(modelPath);
+      if (!ok) {
+        setDownloadModalVisible(false);
+        setModelState('idle');
+        setDownloadJobId(null);
+        openAlert({
+          title: '다운로드 실패',
+          message:
+            '파일이 올바르지 않습니다(만료된 서명/부분 다운로드 가능성).\n' +
+            '다시 시도해 주세요.',
+          confirmText: '확인',
+        });
+        return;
+      }
+
       setDownloadModalVisible(false);
       setModelState('ready');
       setDownloadJobId(null);
@@ -338,6 +472,77 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
     setModelState('idle');
   };
 
+  // ===== llama.rn 초기화 (초저메모리 프리셋 → 점진적 상향) =====
+  async function initLlamaSafe(localPath: string) {
+    if (initInProgressRef.current || llamaRef.current) return;
+    initInProgressRef.current = true;
+    setLlamaReady(false);
+
+    let mod: any;
+    try {
+      mod = await import('llama.rn'); // 설치 불가/미설치 시 예외 → 폴백 없음(오직 내 AI만 사용)
+    } catch {
+      initInProgressRef.current = false;
+      setLlamaReady(false);
+      return;
+    }
+
+    const { initLlama, loadLlamaModelInfo } = mod;
+    const uri = `file://${localPath}`;
+
+    try {
+      await loadLlamaModelInfo(uri);
+    } catch (e) {
+      console.warn('모델 정보 로딩 실패:', e);
+      initInProgressRef.current = false;
+      return;
+    }
+
+    const presets = [
+      { n_ctx: 384, n_threads: 2, n_gpu_layers: Platform.OS === 'android' ? 0 : 99, use_mlock: false, use_mmap: true },
+      { n_ctx: 512, n_threads: 3, n_gpu_layers: Platform.OS === 'android' ? 0 : 99, use_mlock: false, use_mmap: true },
+      { n_ctx: 768, n_threads: 4, n_gpu_layers: Platform.OS === 'android' ? 0 : 99, use_mlock: false, use_mmap: true },
+    ];
+
+    for (const p of presets) {
+      try {
+        const ctx = await initLlama({ model: uri, ...p });
+        llamaRef.current = ctx;
+        setLlamaReady(true);
+        initInProgressRef.current = false;
+        return;
+      } catch (e) {
+        console.warn('llama init 실패, 낮은 프리셋 재시도:', p, e);
+      }
+    }
+
+    setLlamaReady(false);
+    initInProgressRef.current = false;
+    openAlert({
+      title: '모델 초기화 실패',
+      message: '기기 메모리 제약으로 모델을 열 수 없습니다. 다른 기기에서 시도해 주세요.',
+      confirmText: '확인',
+    });
+  }
+
+  // 모델 파일 준비되면 llama 초기화
+  useEffect(() => {
+    (async () => {
+      if (modelState !== 'ready' || !modelPath) return;
+      try {
+        await initLlamaSafe(modelPath);
+      } catch (e: any) {
+        console.error(e);
+        openAlert({
+          title: '모델 초기화 실패',
+          message: '모델을 여는 중 오류가 발생했습니다.',
+          confirmText: '확인',
+        });
+      }
+    })();
+  }, [modelState, modelPath]);
+
+  // ===== 사이드바 =====
   const toggleSidebar = () => {
     if (sidebarVisible) {
       Animated.timing(sidebarAnimation, { toValue: -300, duration: 280, useNativeDriver: false }).start(() =>
@@ -361,8 +566,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
           text: m.content,
           sender: m.sender_type === 'assistant' ? 'bot' : 'user',
           timestamp: new Date(m.created_at),
-          image: m.image_url ?? undefined,
-        })),
+        }))
       );
     } catch (e) {
       console.error('메시지 불러오기 실패:', e);
@@ -394,103 +598,66 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
   const isSameDay = (a: Date, b: Date) =>
     a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
   const shouldShowDateSeparator = (current: Message, prev: Message | null) => !!prev && !isSameDay(current.timestamp, prev.timestamp);
-
   const ensureStartTime = () => {
     if (!chatStartTime) setChatStartTime(new Date());
   };
 
-  // ===== 권한/이미지 =====
-  const requestCameraPermission = async () => {
-    if (Platform.OS !== 'android') return true;
-    try {
-      const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA, {
-        title: '카메라 권한',
-        message: '사진 촬영을 위해 카메라 권한이 필요합니다.',
-        buttonNeutral: '나중에',
-        buttonNegative: '취소',
-        buttonPositive: '확인',
-      });
-      const ok = granted === PermissionsAndroid.RESULTS.GRANTED;
-      if (!ok) {
-        openAlert({ title: '권한 필요', message: '카메라 사용을 위해 권한이 필요합니다.', confirmText: '확인' });
-      }
-      return ok;
-    } catch (e) {
-      console.warn(e);
-      openAlert({ title: '오류', message: '권한 요청 중 문제가 발생했습니다.', confirmText: '확인' });
-      return false;
+  // ===== LLM 메시지 구성 =====
+  function buildChatForModel(history: Message[], latestUser: string) {
+    const recent = history.slice(-12);
+    const msgs: any[] = [
+      {
+        role: 'system',
+        content:
+          'You are a helpful veterinary assistant for pets. Always be careful and suggest vet visit for emergencies. Answer in Korean.',
+      },
+    ];
+    for (const m of recent) {
+      if (!m.text) continue;
+      msgs.push({ role: m.sender === 'user' ? 'user' : 'assistant', content: m.text });
     }
-  };
+    msgs.push({ role: 'user', content: latestUser });
+    return msgs;
+  }
 
-  const showImagePicker = () => setImagePickerVisible(true);
-
-  const pickImageFromGallery = () => {
-    setImagePickerVisible(false);
-    const options = { mediaType: 'photo' as MediaType, includeBase64: false, maxHeight: 2000, maxWidth: 2000 };
-    launchImageLibrary(options, (res: ImagePickerResponse) => {
-      if (res.didCancel || res.errorMessage) return;
-      const uri = res.assets?.[0]?.uri;
-      if (uri) sendImageMessage(uri);
-    });
-  };
-
-  const pickImageFromCamera = async () => {
-    setImagePickerVisible(false);
-    const ok = await requestCameraPermission();
-    if (!ok) return;
-    const options = { mediaType: 'photo' as MediaType, includeBase64: false, maxHeight: 2000, maxWidth: 2000 };
-    launchCamera(options, (res: ImagePickerResponse) => {
-      if (res.didCancel || res.errorMessage) return;
-      const uri = res.assets?.[0]?.uri;
-      if (uri) sendImageMessage(uri);
-    });
-  };
-
-  const typeWriter = (text: string, onDone: () => void) => {
-    setTypingText('');
-    setIsTyping(true);
-    setIsDiagnosing(false);
-    let i = 0;
-    const timer = setInterval(() => {
-      if (i < text.length) {
-        setTypingText(text.slice(0, i + 1));
-        i++;
-      } else {
-        clearInterval(timer);
-        setIsTyping(false);
-        onDone();
-      }
-    }, 18);
-  };
-
-  const sendImageMessage = (imageUri: string) => {
-    ensureStartTime();
-    const now = new Date();
-    const userMsg: Message = {
-      id: Date.now().toString(),
-      text: '동물 사진 분석을 요청합니다.',
-      sender: 'user',
-      timestamp: now,
-      image: imageUri,
-    };
-    setMessages((prev) => [...prev, userMsg]);
+  // ===== LLM 호출 (스트리밍) =====
+  async function askLocalModel(newUserText: string): Promise<string> {
+    const ctx = llamaRef.current;
+    if (!ctx) throw new Error('LLM not ready');
+    let partial = '';
     setIsDiagnosing(true);
-
-    setTimeout(() => {
-      const botResponse =
-        '업로드해주신 사진을 분석하고 있어요 🔍\n\n더 정확한 판단을 위해 아래 정보를 알려주세요:\n• 나이/품종\n• 현재 보이는 증상과 시작 시점\n• 식욕·활동량 변화\n\n심각한 증상이 보이면 가까운 동물병원 방문을 권장합니다. 🏥';
-      typeWriter(botResponse, () => {
-        const botMsg: Message = { id: (Date.now() + 1).toString(), text: botResponse, sender: 'bot', timestamp: new Date() };
-        setMessages((prev) => [...prev, botMsg]);
-        setTypingText('');
-      });
-    }, 1800);
-  };
+    setIsTyping(true);
+    setTypingText('');
+    try {
+      const messagesForModel = buildChatForModel(messages, newUserText);
+      const res = await ctx.completion(
+        {
+          messages: messagesForModel,
+          n_predict: 160,
+          stop: STOP_WORDS,
+          temperature: 0.7,
+          top_p: 0.9,
+        },
+        ({ token }: any) => {
+          if (partial.length === 0) setIsDiagnosing(false);
+          partial += token ?? '';
+          setTypingText(partial);
+        }
+      );
+      const finalText = (res?.text || partial || '').trim();
+      return finalText;
+    } finally {
+      setIsTyping(false);
+      setIsDiagnosing(false);
+      setTypingText('');
+    }
+  }
 
   const handleSend = async (text?: string) => {
     const messageText = (text ?? input).trim();
     if (!messageText) return;
     ensureStartTime();
+
     const now = new Date();
     const userMsg: Message = { id: Date.now().toString(), text: messageText, sender: 'user', timestamp: now };
     setMessages((prev) => [...prev, userMsg]);
@@ -505,68 +672,50 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
       }
     }
 
-    setTimeout(() => {
-      const botResponse = generateBotResponse(messageText);
-      typeWriter(botResponse, async () => {
-        const botMsg: Message = {
-          id: (Date.now() + 1).toString(),
-          text: botResponse,
-          sender: 'bot',
-          timestamp: new Date(),
-        };
-        setMessages((prev) => [...prev, botMsg]);
-        setTypingText('');
+    try {
+      // ✅ 오직 내 AI(온디바이스)만 사용. 준비되지 않으면 전송 중단.
+      if (!(modelState === 'ready' && llamaReady)) {
+        openAlert({
+          title: '모델 준비 중',
+          message: '온디바이스 모델이 아직 준비되지 않았습니다. 모델을 다운로드/초기화한 뒤 다시 시도해 주세요.',
+          confirmText: '확인',
+        });
+        setIsDiagnosing(false);
+        return;
+      }
 
-        if (threadId) {
-          try {
-            const updated = await getThreads();
-            setThreads(updated.data);
-          } catch (e) {
-            console.error('스레드 목록 갱신 실패:', e);
-          }
+      const botResponse = await askLocalModel(messageText);
+      const botMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        text: botResponse,
+        sender: 'bot',
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, botMsg]);
+
+      if (threadId) {
+        try {
+          await sendMessage(threadId, botResponse, 'assistant');
+          const updated = await getThreads();
+          setThreads(updated.data);
+        } catch (e) {
+          console.error('스레드 목록 갱신 실패:', e);
         }
+      }
+    } catch (e: any) {
+      console.error('LLM 응답 실패:', e);
+      openAlert({
+        title: '오류',
+        message: '로컬 모델 응답에 실패했습니다. 네트워크 또는 메모리 상태 확인 후 다시 시도해 주세요.',
+        confirmText: '확인',
       });
-    }, 1200);
+      setIsDiagnosing(false);
+      setIsTyping(false);
+      setTypingText('');
+    }
   };
 
-  // ▼ (임시) 규칙 기반 응답 — 실제 온디바이스 모델 연동 시 이 함수를 LLM 호출로 대체
-  const generateBotResponse = (msg: string): string => {
-    const m = msg.toLowerCase();
-    if (m.includes('안녕') || m.includes('hello') || m.includes('도움')) {
-      return (
-        '안녕하세요! 저는 반려동물 헬스케어 AI 챗봇입니다. 🐾\n' +
-        '행동·증상·사료·생활습관 등 무엇이든 물어보세요.\n' +
-        '응급이 의심될 땐 즉시 동물병원 방문을 권장드려요. 🏥'
-      );
-    }
-    if (m.includes('기침') || m.includes('콜록')) {
-      return (
-        '기침이 있다면 다음을 확인해보세요:\n' +
-        '• 지속 시간/빈도, 발열 여부\n' +
-        '• 식욕/활동량 변화\n' +
-        '• 가래·혈액 동반 여부\n' +
-        '2일 이상 지속되면 진료를 권장합니다. 🏥'
-      );
-    }
-    if (m.includes('밥') || m.includes('식욕') || m.includes('안 먹')) {
-      return (
-        '식욕 부진의 흔한 원인:\n' +
-        '• 환경 변화/스트레스\n' +
-        '• 구강·치과 문제\n' +
-        '• 소화기 질환, 사료 변경 거부\n' +
-        '24시간 이상 전혀 먹지 않으면 즉시 병원으로 가세요. 물은 상시 제공하세요. 💧'
-      );
-    }
-    return (
-      '증상에 대해 조금만 더 알려주실 수 있을까요?\n' +
-      '• 언제부터 시작되었나요?\n' +
-      '• 동반 증상(구토/설사/무기력 등)은 있나요?\n' +
-      '• 평소와 달라진 행동이 있나요?\n' +
-      '심각하면 바로 병원 방문을 권장합니다. 🏥'
-    );
-  };
-
-  // ===== 렌더 =====
+  // ===== 메시지 렌더 =====
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
     const prev = index > 0 ? messages[index - 1] : null;
     const needDateChip = shouldShowDateSeparator(item, prev);
@@ -589,16 +738,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
                 { backgroundColor: theme.primary, borderBottomRightRadius: 6, borderColor: 'transparent' },
               ]}
             >
-              {item.image ? (
-                <View>
-                  <Image source={{ uri: item.image }} style={styles.messageImage} resizeMode="cover" />
-                  {item.text ? (
-                    <Text style={[styles.messageText, { color: theme.bubbleUserText, marginTop: 8 }]}>{item.text}</Text>
-                  ) : null}
-                </View>
-              ) : (
-                <Text style={[styles.messageText, { color: theme.bubbleUserText }]}>{item.text}</Text>
-              )}
+              <Text style={[styles.messageText, { color: theme.bubbleUserText }]}>{item.text}</Text>
             </View>
             <Image
               source={darkMode ? require('../logo/user2.png') : require('../logo/user.png')}
@@ -649,7 +789,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
         {isDiagnosing ? (
           <View style={styles.diagnosingContainer}>
             <Animated.View style={[styles.loadingSpinner, { borderColor: theme.spinner, transform: [{ rotate: spin }] }]} />
-            <Text style={[styles.diagnosingText, { color: theme.subtext }]}>진단중...</Text>
+            <Text style={[styles.diagnosingText, { color: theme.subtext }]}>생각 중…</Text>
           </View>
         ) : (
           <View style={styles.typingContainer}>
@@ -697,15 +837,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
                 <Text style={[styles.newChatText, { color: theme.text }]}>새 채팅</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.photoSaveButton}
-                onPress={() => {
-                  navigation?.goToPhotoGallery && navigation.goToPhotoGallery();
-                }}
-              >
-                <MaterialIcons name="photo-library" size={18} color={theme.subtext} style={{ marginRight: 12 }} />
-                <Text style={[styles.photoSaveText, { color: theme.text }]}>사진 저장 목록</Text>
-              </TouchableOpacity>
+              {/* 사진 저장 목록 항목 제거됨 */}
 
               <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
@@ -723,7 +855,6 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
                     <TouchableOpacity
                       style={{ paddingHorizontal: 16, paddingVertical: 10 }}
                       onPress={() => {
-                        // 옵션은 RNAlert로 유지(다중 버튼)
                         RNAlert.alert(
                           '채팅 옵션',
                           '',
@@ -757,7 +888,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
                             },
                             { text: '취소', style: 'cancel' },
                           ],
-                          { cancelable: true },
+                          { cancelable: true }
                         );
                       }}
                     >
@@ -768,7 +899,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
               </View>
             </ScrollView>
 
-            <View style={[styles.sidebarBottom, { borderTopColor: theme.border }]} >
+            <View style={[styles.sidebarBottom, { borderTopColor: theme.border }]}>
               <TouchableOpacity
                 style={[styles.logoutButton, { backgroundColor: theme.danger, borderColor: theme.border }]}
                 onPress={() => setLogoutModalVisible(true)}
@@ -778,67 +909,6 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
             </View>
           </View>
         </Animated.View>
-      </View>
-    </Modal>
-  );
-
-  const renderImagePickerModal = () => (
-    <Modal visible={imagePickerVisible} transparent animationType="fade" onRequestClose={() => setImagePickerVisible(false)}>
-      <View style={styles.modalOverlay}>
-        <View style={[styles.imagePickerModal, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-          <View style={styles.modalHeader}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>사진 선택</Text>
-            <TouchableOpacity
-              onPress={() => setImagePickerVisible(false)}
-              style={[styles.modalCloseButton, { backgroundColor: darkMode ? '#2F3438' : '#F3F5F7' }]}
-            >
-              <MaterialIcons name="close" size={24} color={theme.subtext} />
-            </TouchableOpacity>
-          </View>
-
-          <Text style={[styles.modalSubtitle, { color: theme.subtext }]}>사진을 어떻게 추가하시겠습니까?</Text>
-
-          <View style={styles.imagePickerOptions}>
-            <TouchableOpacity
-              style={[
-                styles.imagePickerOption,
-                { backgroundColor: darkMode ? '#1F2426' : '#F6F8FA', borderColor: theme.border },
-              ]}
-              onPress={pickImageFromGallery}
-            >
-              <View style={[styles.optionIconContainer, { backgroundColor: darkMode ? '#163D34' : '#E3F2ED' }]}>
-                <MaterialIcons name="photo-library" size={32} color={theme.primary} />
-              </View>
-              <View style={styles.optionContent}>
-                <Text style={[styles.optionTitle, { color: theme.text }]}>갤러리에서 선택</Text>
-                <Text style={[styles.optionDescription, { color: theme.subtext }]}>저장된 사진에서 선택합니다</Text>
-              </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.imagePickerOption,
-                { backgroundColor: darkMode ? '#1F2426' : '#F6F8FA', borderColor: theme.border },
-              ]}
-              onPress={pickImageFromCamera}
-            >
-              <View style={[styles.optionIconContainer, { backgroundColor: darkMode ? '#163D34' : '#E3F2ED' }]}>
-                <MaterialIcons name="camera-alt" size={32} color={theme.primary} />
-              </View>
-              <View style={styles.optionContent}>
-                <Text style={[styles.optionTitle, { color: theme.text }]}>카메라로 촬영</Text>
-                <Text style={[styles.optionDescription, { color: theme.subtext }]}>새로운 사진을 촬영합니다</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-
-          <TouchableOpacity
-            style={[styles.modalCancelButton, { backgroundColor: darkMode ? '#2B2F33' : '#F3F5F7', borderColor: theme.border }]}
-            onPress={() => setImagePickerVisible(false)}
-          >
-            <Text style={[styles.modalCancelText, { color: theme.subtext }]}>취소</Text>
-          </TouchableOpacity>
-        </View>
       </View>
     </Modal>
   );
@@ -877,7 +947,6 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
     </Modal>
   );
 
-  // 커스텀 App Alert
   const renderAppAlert = () => (
     <Modal visible={appAlert.visible} transparent animationType="fade" onRequestClose={closeAlert}>
       <View style={styles.modalOverlay}>
@@ -888,14 +957,20 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
             {appAlert.cancelText ? (
               <TouchableOpacity
                 style={[styles.appAlertButton, { backgroundColor: darkMode ? '#2B2F33' : '#F3F5F7', borderColor: theme.border }]}
-                onPress={() => { closeAlert(); appAlert.onCancel?.(); }}
+                onPress={() => {
+                  closeAlert();
+                  appAlert.onCancel?.();
+                }}
               >
                 <Text style={[styles.appAlertButtonText, { color: theme.subtext }]}>{appAlert.cancelText}</Text>
               </TouchableOpacity>
             ) : null}
             <TouchableOpacity
               style={[styles.appAlertButtonPrimary, { backgroundColor: theme.primary }]}
-              onPress={() => { closeAlert(); appAlert.onConfirm?.(); }}
+              onPress={() => {
+                closeAlert();
+                appAlert.onConfirm?.();
+              }}
             >
               <Text style={styles.appAlertButtonPrimaryText}>{appAlert.confirmText || '확인'}</Text>
             </TouchableOpacity>
@@ -905,7 +980,6 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
     </Modal>
   );
 
-  // 모델 다운로드 진행률 모달
   const renderDownloadModal = () => (
     <Modal visible={downloadModalVisible} transparent animationType="fade" onRequestClose={cancelDownload}>
       <View style={styles.modalOverlay}>
@@ -935,6 +1009,8 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
   );
 
   // 이름 변경 모달
+  const [renameModalVisible, setRenameModalVisible] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
   const renderRenameModal = () => (
     <Modal visible={renameModalVisible} transparent animationType="fade" onRequestClose={() => setRenameModalVisible(false)}>
       <View style={styles.modalOverlay}>
@@ -959,7 +1035,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
               onPress={async () => {
                 if (!selectedThreadId || !newTitle.trim()) return;
                 try {
-                  await updateThread(selectedThreadId, newTitle.trim()); // <- 프로젝트 API 시그니처에 맞게 필요 시 조정
+                  await updateThread(selectedThreadId, newTitle.trim());
                   const updated = await getThreads();
                   setThreads(updated.data);
                   setRenameModalVisible(false);
@@ -977,85 +1053,43 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
     </Modal>
   );
 
-  // 헤더 고정, 본문+입력만 KAV
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]} edges={['top', 'left', 'right']}>
       <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} backgroundColor={theme.headerBg} />
 
       {renderSidebar()}
-      {renderImagePickerModal()}
       {renderLogoutModal()}
       {renderAppAlert()}
       {renderDownloadModal()}
       {renderRenameModal()}
 
-      {/* 헤더 */}
-      <View
-        style={[
-          styles.header,
-          { backgroundColor: theme.headerBg, borderBottomColor: theme.border },
-        ]}
-      >
-        <View style={styles.headerLeft}>
-          <TouchableOpacity style={styles.menuButton} onPress={toggleSidebar}>
-            <MaterialIcons name="menu" size={24} color={theme.text} />
-          </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Pet Bot</Text>
-        </View>
-        <View style={styles.headerRight}>
-          <Text style={[styles.welcomeText, { color: theme.subtext }]}>
-            환영합니다{'\n'}
-            <Text style={[styles.teamText, { color: theme.subtext }]}>{username ? `${username}님` : ''}</Text>
-          </Text>
-          <TouchableOpacity
-            style={[styles.profileIconContainer, { backgroundColor: darkMode ? '#2B2F33' : '#F0F2F4' }]}
-            onPress={() => navigation?.goToSettings && navigation.goToSettings()}
-          >
-            <Image
-              source={darkMode ? require('../logo/user2.png') : require('../logo/user.png')}
-              style={styles.profileIconImage}
-              resizeMode="contain"
-            />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* 본문+입력창 */}
+      {/* iOS에서만 KeyboardAvoidingView 사용 → Android의 떠있는 문제 방지 */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior="padding"              // ← iOS/Android 모두 padding으로 통일 (떠 보이는 문제 방지)
+        behavior={isIOS ? 'padding' : undefined}
+        enabled={isIOS}
         keyboardVerticalOffset={0}
       >
         <View style={{ flex: 1 }}>
           {messages.length === 0 ? (
             <ScrollView
               style={{ flex: 1 }}
-              contentContainerStyle={[
-                styles.welcomeContent,
-                { paddingBottom: 40 + (insets.bottom || 0) } // ← 고정값으로 변경
-              ]}
+              contentContainerStyle={[styles.welcomeContent, { paddingBottom: 40 + (insets.bottom || 0) }]}
               showsVerticalScrollIndicator={false}
             >
               <View style={styles.logoSection}>
-                <View
-                  style={[
-                    styles.logoContainer,
-                    { backgroundColor: darkMode ? '#1F2426' : '#F6F8FA', borderColor: theme.border },
-                  ]}
-                >
-                  <Image
-                    source={chatTheme ? require('../logo/cat.png') : require('../logo/dog.png')}
-                    style={styles.logoImage}
-                    resizeMode="contain"
-                  />
+                <View style={[styles.logoContainer, { backgroundColor: darkMode ? '#1F2426' : '#F6F8FA', borderColor: theme.border }]}>
+                  <Image source={chatTheme ? require('../logo/cat.png') : require('../logo/dog.png')} style={styles.logoImage} resizeMode="contain" />
                 </View>
                 <Text style={[styles.welcomeTitle, { color: theme.text }]}>무엇을 도와드릴까요?</Text>
 
-                {/* 모델 상태 배지/버튼 */}
+                {/* 모델 상태 */}
                 {modelState === 'ready' ? (
                   <View style={[styles.readyBadge, { backgroundColor: theme.chipBg }]}>
                     <MaterialIcons name="check-circle" size={16} color={theme.chipText} style={{ marginRight: 6 }} />
-                    <Text style={{ color: theme.chipText, fontWeight: '700' }}>온디바이스 모델 준비 완료</Text>
+                    <Text style={{ color: theme.chipText, fontWeight: '700' }}>
+                      온디바이스 모델 준비 완료{llamaReady ? '' : ' (로컬 엔진 미설치·폴백 없음)'}
+                    </Text>
                   </View>
                 ) : modelState === 'downloading' ? (
                   <View style={[styles.downloadCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
@@ -1088,8 +1122,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
                     key={i}
                     style={[styles.quickActionCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
                     onPress={() => {
-                      if (action.title === '동물 사진 분석') showImagePicker();
-                      else if (action.title === '펫 헬스케어') setInput('펫 헬스케어에 대해 알려주세요');
+                      if (action.title === '펫 헬스케어') setInput('펫 헬스케어에 대해 알려주세요');
                       else handleSend(action.title);
                     }}
                   >
@@ -1110,7 +1143,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
               keyExtractor={(item) => item.id}
               contentContainerStyle={{
                 padding: 15,
-                paddingBottom: INPUT_BAR_MIN_HEIGHT + 8 + (insets.bottom || 0), // ← 고정값으로 변경
+                paddingBottom: INPUT_BAR_MIN_HEIGHT + 8 + (insets.bottom || 0),
               }}
               ListHeaderComponent={
                 chatStartTime ? (
@@ -1137,7 +1170,8 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
             {
               backgroundColor: theme.surface,
               borderTopColor: theme.border,
-              paddingBottom: (insets.bottom || 0), // ← 항상 세이프에어리어만 반영
+              // iOS는 KAV가 패딩을 처리하므로 안전영역만, Android는 adjustResize에 맡김
+              paddingBottom: insets.bottom || 0,
               minHeight: INPUT_BAR_MIN_HEIGHT,
             },
           ]}
@@ -1151,9 +1185,6 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
               },
             ]}
           >
-            <TouchableOpacity style={styles.attachButton} onPress={showImagePicker}>
-              <MaterialIcons name="photo-camera" size={20} color={theme.subtext} />
-            </TouchableOpacity>
             <TextInput
               style={[styles.input, { color: theme.text }]}
               placeholder="메시지를 입력하세요..."
@@ -1173,10 +1204,7 @@ const ChatBotScreen = ({ navigation, chatTheme, darkMode }: any) => {
             />
             <TouchableOpacity
               onPress={() => handleSend()}
-              style={[
-                styles.sendButton,
-                { backgroundColor: input.trim() ? theme.primary : (darkMode ? '#2B2F33' : '#E6EAEE') },
-              ]}
+              style={[styles.sendButton, { backgroundColor: input.trim() ? theme.primary : (darkMode ? '#2B2F33' : '#E6EAEE') }]}
               disabled={!input.trim()}
             >
               <MaterialIcons name="send" size={18} color={input.trim() ? '#fff' : (darkMode ? '#565B60' : '#98A2AE')} />
@@ -1258,7 +1286,6 @@ const styles = StyleSheet.create({
   userAvatar: { width: 35, height: 35, borderRadius: 17.5, marginLeft: 6, marginTop: 2 },
   messageBubble: { paddingVertical: 10, paddingHorizontal: 13, borderRadius: 18, maxWidth: '78%', borderWidth: 1 },
   messageText: { fontSize: 15, lineHeight: 22 },
-  messageImage: { width: 210, height: 210, borderRadius: 12, marginBottom: 6 },
 
   chatStartTimeContainer: { alignItems: 'center', marginVertical: 18 },
   chatStartTimeText: { fontSize: 12, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 },
@@ -1278,8 +1305,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     paddingTop: 8,
   },
-  inputWrapper: { flexDirection: 'row', alignItems: 'center', borderRadius: 22, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1 },
-  attachButton: { width: 36, height: 36, justifyContent: 'center', alignItems: 'center', marginRight: 6 },
+  inputWrapper: { flexDirection: 'row', alignItems: 'center', borderRadius: 22, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1 },
   input: { flex: 1, fontSize: 16, maxHeight: 120, paddingVertical: Platform.OS === 'android' ? 10 : 8, textAlignVertical: 'top' },
   sendButton: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center', marginLeft: 8 },
 
@@ -1296,8 +1322,6 @@ const styles = StyleSheet.create({
   closeButton: { width: 30, height: 30, justifyContent: 'center', alignItems: 'center' },
   newChatButton: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14 },
   newChatText: { fontSize: 16, fontWeight: '600' },
-  photoSaveButton: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14 },
-  photoSaveText: { fontSize: 16, fontWeight: '600' },
   divider: { height: 1, marginHorizontal: 0, marginVertical: 10 },
   sidebarSection: { paddingHorizontal: 20, paddingVertical: 14 },
   sectionTitle: { fontSize: 14, fontWeight: '600' },
@@ -1305,34 +1329,14 @@ const styles = StyleSheet.create({
   logoutButton: { justifyContent: 'center', alignItems: 'center', paddingVertical: 13, paddingHorizontal: 13, borderRadius: 10, borderWidth: 1 },
   logoutText: { fontSize: 16, color: '#fff', fontWeight: '700' },
 
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 },
 
-  imagePickerModal: {
-    borderRadius: 16,
-    padding: 24,
-    width: '100%',
-    maxWidth: 320,
-    borderWidth: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  // 모달 공통
+  modalHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   modalTitle: { fontSize: 20, fontWeight: '800' },
-  modalCloseButton: { width: 32, height: 32, justifyContent: 'center', alignItems: 'center', borderRadius: 16 },
-  modalSubtitle: { fontSize: 14, marginBottom: 12, textAlign: 'center' },
+  modalSubtitle: { fontSize: 14 },
 
-  // ✅ 누락되었던 이미지 피커 옵션 스타일들 복원
-  imagePickerOptions: { gap: 10, marginBottom: 18, width: '100%' },
-  imagePickerOption: { flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 12, borderWidth: 1 },
-  optionIconContainer: { width: 48, height: 48, borderRadius: 24, justifyContent: 'center', alignItems: 'center', marginRight: 14 },
-  optionContent: { flex: 1 },
-  optionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 2 },
-  optionDescription: { fontSize: 13 },
-
-  // 이 버튼/텍스트도 일부 모달에서 재사용
+  // 공용 버튼
   modalCancelButton: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8, borderWidth: 1, alignItems: 'center' },
   modalCancelText: { fontSize: 16, fontWeight: '600' },
 
@@ -1366,21 +1370,9 @@ const styles = StyleSheet.create({
   appAlertTitle: { fontSize: 18, fontWeight: '800', marginBottom: 8, textAlign: 'center' },
   appAlertMessage: { fontSize: 14, lineHeight: 20, textAlign: 'center' },
   appAlertButtons: { flexDirection: 'row', marginTop: 14 },
-  appAlertButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 10,
-    alignItems: 'center',
-    borderWidth: 1,
-  },
+  appAlertButton: { flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center', borderWidth: 1 },
   appAlertButtonText: { fontSize: 15, fontWeight: '700' },
-  appAlertButtonPrimary: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 10,
-    alignItems: 'center',
-    marginLeft: 8,
-  },
+  appAlertButtonPrimary: { flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center', marginLeft: 8 },
   appAlertButtonPrimaryText: { fontSize: 15, fontWeight: '800', color: '#fff' },
 
   // 다운로드 모달
