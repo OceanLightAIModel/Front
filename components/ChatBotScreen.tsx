@@ -30,6 +30,7 @@ import {
 } from './api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import RNFS from 'react-native-fs';
+import { logout } from './api';
 
 // ===== 온디바이스 모델 파일/URL =====
 const MODEL_FILE_NAME = 'kogpt-q4_k_m.gguf';
@@ -969,9 +970,19 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.logoutConfirmButton, { backgroundColor: theme.danger }]}
-              onPress={() => {
+              onPress={async () => {
                 setLogoutModalVisible(false);
+                // 1. 토큰 삭제
+                await logout(); // api.ts 내부에서 clearTokens()를 호출함
+                // 2. 사용자명 등 추가 데이터 삭제
+                await AsyncStorage.removeItem('username');
+                // 3. 채팅/스레드 상태 초기화 (선택 사항)
+                setMessages([]);
+                setThreadId(null);
+                setSelectedThreadId(null);
+                // 4. 사이드바 닫기
                 toggleSidebar();
+                // 5. 로그인 화면으로 이동
                 navigation?.goToLogin && navigation.goToLogin();
               }}
             >

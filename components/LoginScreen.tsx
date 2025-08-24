@@ -1,6 +1,7 @@
+// LoginScreen.tsx
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { API_BASE_URL } from './api';
+import { API_BASE_URL, setTokens } from './api';  // setTokens import 추가
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
@@ -39,7 +40,7 @@ interface LoginScreenProps {
   showCustomAlert: (
     title: string,
     message: string,
-    buttons?: Array<{ text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive' }>
+    buttons?: Array<{ text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive' }>,
   ) => void;
 }
 
@@ -62,7 +63,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [checkingAuth, setCheckingAuth] = useState(true); // NEW: 토큰 확인 중 여부
+  const [checkingAuth, setCheckingAuth] = useState(true);
 
   // 백 버튼으로 앱 종료 확인
   useEffect(() => {
@@ -82,7 +83,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
     const checkLoggedIn = async () => {
       const token = await AsyncStorage.getItem('accessToken');
       if (token) {
-        onLogin();          // 토큰이 있으면 로그인 화면을 거치지 않고 바로 이동
+        onLogin(); // 토큰이 있으면 로그인 화면을 거치지 않고 바로 이동
       } else {
         setCheckingAuth(false); // 토큰이 없으면 로그인 화면을 표시
       }
@@ -90,7 +91,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
     checkLoggedIn();
   }, []);
 
-  // NEW: 토큰 확인이 끝나기 전엔 아무것도 렌더링하지 않음
+  // 토큰 확인이 끝나기 전엔 아무것도 렌더링하지 않음
   if (checkingAuth) {
     return null;
   }
@@ -118,13 +119,13 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
       );
 
       const { access_token, refresh_token } = response.data;
-      if (rememberMe) {
-        await AsyncStorage.setItem('accessToken', access_token);
-        await AsyncStorage.setItem('refreshToken', refresh_token);
-      } else {
-        await AsyncStorage.removeItem('accessToken');
-        await AsyncStorage.removeItem('refreshToken');
-      }
+
+      // ✅ rememberMe 여부와 상관없이 로그인 성공 시 토큰 저장
+      await setTokens(access_token, refresh_token);
+
+      // rememberMe가 false인 경우에도 현재 세션에서는 토큰을 사용하지만,
+      // 로그아웃하거나 앱을 종료할 때 clearTokens()를 호출해 토큰을 지우면 됩니다.
+
       onLogin();
     } catch (error: any) {
       if (axios.isAxiosError(error) && error.response) {
@@ -242,14 +243,6 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
                 <View style={styles.linkContainer}>
                   <TouchableOpacity onPress={onNavigateToSignup}>
                     <Text style={styles.linkText}>회원가입</Text>
-                  </TouchableOpacity>
-                  <Text style={styles.linkDivider}>|</Text>
-                  <TouchableOpacity onPress={onNavigateToFindAccount}>
-                    <Text style={styles.linkText}>계정 찾기</Text>
-                  </TouchableOpacity>
-                  <Text style={styles.linkDivider}>|</Text>
-                  <TouchableOpacity onPress={onNavigateToResetPassword}>
-                    <Text style={styles.linkText}>비밀번호 찾기</Text>
                   </TouchableOpacity>
                 </View>
               </View>

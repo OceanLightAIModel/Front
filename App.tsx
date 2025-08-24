@@ -22,7 +22,6 @@ import ResetPasswordScreen from './components/ResetPasswordScreen';
 import ChatBotScreen from './components/ChatBotScreen';
 import SettingsScreen from './components/SettingsScreen';
 import CustomAlert from './components/CustomAlert';
-import PhotoGalleryScreen from './components/PhotoGalleryScreen';
 type ScreenName =
   | 'splash'
   | 'login'
@@ -358,13 +357,6 @@ const App = () => {
               navigation={{ goBack: () => navigateToScreen('settings') }}
               darkMode={darkMode}
             />
-          </Animated.View>
-        );
-
-      case 'photoGallery':
-        return (
-          <Animated.View style={[{ flex: 1 }, animatedStyle]}>
-            <PhotoGalleryScreen navigation={{ goBack: () => navigateToScreen('chat') }} />
           </Animated.View>
         );
 

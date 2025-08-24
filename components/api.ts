@@ -2,7 +2,6 @@
 import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-
 /** ====== 서버 기본 주소 ====== */
 export const API_BASE_URL = 'http://15.164.104.195:8000';
 
@@ -40,7 +39,6 @@ export async function getRefreshToken() {
 api.interceptors.request.use(async (config) => {
   const token = await getAccessToken();
   if (token) {
-    // headers가 undefined일 수 있으므로 안전하게 처리
     config.headers = config.headers ?? {};
     (config.headers as any).Authorization = `Bearer ${token}`;
   }
@@ -66,35 +64,33 @@ api.interceptors.response.use(
     const { response, config } = error;
     const originalRequest = (config || {}) as AxiosRequestConfig & { _retry?: boolean };
 
-    // 401이 아니면 그대로 종료
+    // 401이 아닌 오류는 그대로 처리
     if (response?.status !== 401) {
       return Promise.reject(error);
     }
 
-    // 로그인/리프레시 요청 자체에서 401이면 더 시도하지 않음(루프 방지)
+    // 로그인 또는 refresh 자체에서 401이 발생하면 토큰 삭제 후 종료
     const reqUrl = (originalRequest.url || '').toString();
     if (reqUrl.includes('/auth/login') || reqUrl.includes('/auth/refresh')) {
       await clearTokens();
       return Promise.reject(error);
     }
 
-    // 이미 재시도한 요청이면 중단(루프 방지)
+    // 이미 재시도한 요청이면 무한루프 방지를 위해 종료
     if (originalRequest._retry) {
       await clearTokens();
       return Promise.reject(error);
     }
-
     originalRequest._retry = true;
 
-    // 동시에 여러 401이 발생할 때, 첫 번째 호출만 refresh를 수행하고 나머지는 큐에 대기
     const refreshToken = await getRefreshToken();
     if (!refreshToken) {
       await clearTokens();
       return Promise.reject(error);
     }
 
+    // 이미 다른 요청이 리프레시 중이면 큐에 등록
     if (isRefreshing) {
-      // 리프레시 끝날 때까지 대기했다가 새 토큰으로 재시도
       return new Promise((resolve) => {
         subscribeTokenRefreshed((newToken) => {
           originalRequest.headers = originalRequest.headers ?? {};
@@ -117,7 +113,7 @@ api.interceptors.response.use(
       const newRefreshToken = (res.data as any)?.refresh_token;
 
       if (!newAccessToken) {
-        throw new Error('No access_token in refresh response');
+      throw new Error('No access_token in refresh response');
       }
 
       await setTokens(newAccessToken, newRefreshToken);
@@ -142,7 +138,7 @@ api.interceptors.response.use(
  *  인증/계정 관련 API
  *  ======================= */
 
-/** 로그인: 폼 전송 (username=email, password=비번) */
+/** 로그인: username/email과 password를 form-urlencoded로 전송 */
 export async function login(email: string, password: string) {
   const params = new URLSearchParams();
   params.append('username', email);
@@ -163,7 +159,7 @@ export async function login(email: string, password: string) {
   return data;
 }
 
-/** 로그아웃(클라이언트 측 토큰 삭제) */
+/** 로그아웃: 로컬에 저장한 토큰 삭제 */
 export async function logout() {
   await clearTokens();
 }
@@ -194,7 +190,6 @@ export const getModelSignedUrl = async () => {
 
 /** 새 채팅(스레드) 생성 */
 export const createThread = async (title: string) => {
-  // threads 라우터: prefix=/threads, 내부 경로도 /threads
   return api.post('/threads/threads', { thread_title: title });
 };
 
@@ -205,7 +200,6 @@ export const getThreads = async () => {
 
 /** 특정 스레드 메시지 조회 */
 export const getMessages = async (threadId: number) => {
-  // 메시지 라우터는 prefix="/threads"
   return api.get(`/threads/${threadId}/messages`);
 };
 
@@ -215,9 +209,7 @@ export const sendMessage = async (
   content: string,
   senderType: 'user' | 'assistant',
 ) => {
-  // 멱등성 위한 client_message_id
   const clientMessageId = `${Date.now()}-${Math.random()}`;
-
   return api.post(`/threads/${threadId}/messages`, {
     content,
     sender_type: senderType,

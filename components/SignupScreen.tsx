@@ -1,4 +1,5 @@
-import React, { useEffect } from 'react';
+// SignupScreen.tsx
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -16,6 +17,8 @@ import {
 import axios from 'axios';
 import { API_BASE_URL } from './api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import CustomAlert from './CustomAlert'; // 커스텀 알림 컴포넌트 import
+
 interface SignupScreenProps {
   signupName: string;
   setSignupName: (name: string) => void;
@@ -25,10 +28,9 @@ interface SignupScreenProps {
   setSignupPassword: (password: string) => void;
   signupPasswordConfirm: string;
   setSignupPasswordConfirm: (password: string) => void;
-  onSignup: () => void;       // 사용되지 않지만 props 구조 유지
+  onSignup: () => void; // 사용되지 않지만 props 구조 유지
   onBackToLogin: () => void;
 }
-
 
 const SignupScreen: React.FC<SignupScreenProps> = ({
   signupName,
@@ -39,9 +41,17 @@ const SignupScreen: React.FC<SignupScreenProps> = ({
   setSignupPassword,
   signupPasswordConfirm,
   setSignupPasswordConfirm,
-  onSignup,        // 사용되지 않지만 props 구조 유지
+  onSignup,
   onBackToLogin,
 }) => {
+  // 커스텀 알림 상태
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertTitle, setAlertTitle] = useState('');
+  const [alertMessage, setAlertMessage] = useState('');
+  const [alertButtons, setAlertButtons] = useState<
+    Array<{ text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive' }>
+  >([{ text: '확인' }]);
+
   useEffect(() => {
     const backAction = () => {
       onBackToLogin();
@@ -51,16 +61,10 @@ const SignupScreen: React.FC<SignupScreenProps> = ({
     return () => backHandler.remove();
   }, [onBackToLogin]);
 
-  /**
-   * 회원가입 버튼 클릭 시 실행되는 함수
-   *
-   * - 비밀번호 규칙 검사: 8자 이상, 대문자/숫자/특수문자 포함 여부 확인
-   * - 비밀번호 확인 일치 여부 검사
-   * - 백엔드에 POST 요청으로 사용자 정보 전송
-   */
-    const handleSignupPress = async () => {
-      const pwd = signupPassword ?? '';
-      const confirm = signupPasswordConfirm ?? '';
+  // 회원가입 버튼 클릭 처리
+  const handleSignupPress = async () => {
+    const pwd = signupPassword ?? '';
+    const confirm = signupPasswordConfirm ?? '';
 
     const hasUpper = /[A-Z]/.test(pwd);
     const hasNumber = /\d/.test(pwd);
@@ -88,36 +92,60 @@ const SignupScreen: React.FC<SignupScreenProps> = ({
       return;
     }
 
-      try {
-        const response = await axios.post(
-          `${API_BASE_URL}/auth/signup`,
-          {
-            username: signupName,
-            email: signupEmail,
-            password: signupPassword,
-          },
-          {
-            validateStatus: (status) => status < 400,
-          }
-        );
-
-        // 회원가입 성공: 상태 코드 201
-        if (response.status === 201) {
-          await AsyncStorage.setItem('username', signupName);  // 새 사용자명 저장
-          Alert.alert('회원가입 성공!', '로그인 화면으로 이동합니다.');
-          onBackToLogin();
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/auth/signup`,
+        {
+          username: signupName,
+          email: signupEmail,
+          password: signupPassword,
+          chat_theme: false,
+          dark_mode: false,
+          created_at: new Date().toISOString(),
+        },
+        {
+          validateStatus: (status) => status < 400,
         }
-    } catch (error: any) {
-      // axios 오류일 때
-      if (axios.isAxiosError(error) && error.response) {
-      const detailMsg =
-          (error.response.data && (error.response.data.detail || error.response.data.message)) ||
-          '알 수 없는 오류가 발생했습니다.';
-        Alert.alert('회원가입 실패', detailMsg);
-      } else {
-        // 네트워크 오류 등 예외 처리
-        Alert.alert('회원가입 실패', '서버에 연결할 수 없습니다. 네트워크를 확인해주세요.');
+      );
+
+      // 회원가입 성공 시 커스텀 알림 표시
+      if (response.status === 201) {
+        await AsyncStorage.setItem('username', signupName);
+        setAlertTitle('회원가입을 축하드립니다!');
+        setAlertMessage('로그인 화면으로 이동합니다.');
+        setAlertButtons([
+          {
+            text: '확인',
+            onPress: () => {
+              setAlertVisible(false);
+              onBackToLogin();
+            },
+          },
+        ]);
+        setAlertVisible(true);
       }
+    } catch (error: any) {
+      // 실패 시 커스텀 알림 표시
+      if (axios.isAxiosError(error) && error.response) {
+        const detailMsg =
+          (error.response.data &&
+            (error.response.data.detail || error.response.data.message)) ||
+          '알 수 없는 오류가 발생했습니다.';
+        setAlertTitle('회원가입 실패');
+        setAlertMessage(detailMsg);
+      } else {
+        setAlertTitle('회원가입 실패');
+        setAlertMessage('서버에 연결할 수 없습니다. 네트워크를 확인해주세요.');
+      }
+      setAlertButtons([
+        {
+          text: '확인',
+          onPress: () => {
+            setAlertVisible(false);
+          },
+        },
+      ]);
+      setAlertVisible(true);
     }
   };
 
@@ -135,6 +163,12 @@ const SignupScreen: React.FC<SignupScreenProps> = ({
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.signupInnerContainer}>
+            {/* 상단 헤더 */}
+            <View style={styles.headerContainer}>
+              <Text style={styles.appTitle}>AI Pet Care</Text>
+              <Text style={styles.appSubtitle}>AI 펫 케어 솔루션</Text>
+            </View>
+
             <View style={styles.signupFormBox}>
               <View style={styles.loginBox}>
                 <TouchableOpacity style={styles.closeButton} onPress={onBackToLogin}>
@@ -199,31 +233,47 @@ const SignupScreen: React.FC<SignupScreenProps> = ({
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* 커스텀 알림 컴포넌트 */}
+      <CustomAlert
+        visible={alertVisible}
+        title={alertTitle}
+        message={alertMessage}
+        buttons={alertButtons}
+        onClose={() => setAlertVisible(false)}
+      />
     </SafeAreaView>
   );
 };
 
-// 스타일 정의는 기존 코드와 동일하게 유지합니다.
+// 스타일 정의
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f8f9fa',
-  },
-  keyboardContainer: {
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-  },
+  container: { flex: 1, backgroundColor: '#f8f9fa' },
+  keyboardContainer: { flex: 1 },
+  scrollView: { flex: 1 },
+  scrollContent: { flexGrow: 1 },
   signupInnerContainer: {
     flex: 1,
     paddingHorizontal: 30,
     justifyContent: 'center',
     minHeight: 600,
     paddingTop: 20,
+  },
+  headerContainer: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  appTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#0080ff',
+    marginBottom: 5,
+    textAlign: 'center',
+  },
+  appSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
   },
   signupFormBox: {
     justifyContent: 'center',
@@ -236,10 +286,7 @@ const styles = StyleSheet.create({
     padding: 30,
     borderWidth: 0,
     shadowColor: 'transparent',
-    shadowOffset: {
-      width: 0,
-      height: 0,
-    },
+    shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0,
     shadowRadius: 0,
     elevation: 0,
