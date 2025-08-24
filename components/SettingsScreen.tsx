@@ -16,7 +16,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
 interface SettingsScreenProps {
-  navigation: { goBack: () => void; goToPrivacyPolicy?: () => void; goToLogin?: () => void };
+  navigation: {
+    goBack: () => void;
+    goToPrivacyPolicy?: () => void;
+    goToLogin?: () => void;
+    navigate?: (route: string) => void;      // 네비게이션 fallback을 위해 추가
+    reset?: (state: { index: number; routes: { name: string }[] }) => void; // 네비게이션 스택 초기화를 위해 추가
+  };
   chatTheme: boolean;
   setChatTheme: (v: boolean) => void;
   darkMode: boolean;
@@ -430,10 +436,20 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     await logout().catch(() => {});
                     await AsyncStorage.multiRemove(['accessToken', 'refreshToken', 'username']);
                   } finally {
+                    // 모달 닫기
                     setSuccessModal({ ...successModal, visible: false });
+
+                    // 계정 삭제 후 로그인 화면으로 이동
                     if (navigation?.goToLogin) {
                       navigation.goToLogin();
+                    } else if (navigation?.navigate) {
+                      // 라우터 이름(Login)이 다를 경우 앱에서 실제 로그인 스크린 이름으로 수정하세요
+                      navigation.navigate('Login');
+                    } else if (navigation?.reset) {
+                      // 스택을 초기화하고 로그인 화면으로 보내는 경우 (React Navigation v6 이상)
+                      navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
                     } else {
+                      // 위의 메서드가 모두 없다면 뒤로 가기
                       navigation.goBack();
                     }
                   }

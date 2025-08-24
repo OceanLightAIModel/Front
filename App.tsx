@@ -340,6 +340,7 @@ const App = () => {
             navigation={{
               goBack: () => navigateToScreen('chat'),
               goToPrivacyPolicy: () => navigateToScreen('privacyPolicy'),
+              goToLogin: () => navigateToScreen('login'), // ✅ 계정 삭제 후 로그인 화면 이동을 위한 함수 추가
             }}
             chatTheme={chatTheme}
             setChatTheme={setChatTheme}

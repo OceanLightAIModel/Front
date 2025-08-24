@@ -33,7 +33,7 @@ import RNFS from 'react-native-fs';
 import { logout } from './api';
 
 // ===== 온디바이스 모델 파일/URL =====
-const MODEL_FILE_NAME = 'kogpt-q4_k_m.gguf';
+const MODEL_FILE_NAME = 'kogpt.Q3_K_M.gguf';
 // ✅ 순수 URL 문자열이어야 합니다.
 const MODEL_SIGNED_URL_API = 'http://15.164.104.195:8000/model/url';
 // 진행률 계산/여유 공간 체크용 (Q4 ~870MB → 900MB로 반올림)
@@ -1322,7 +1322,7 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
                       <MaterialIcons name="cloud-download" size={20} color={theme.primary} style={{ marginRight: 8 }} />
                       <Text style={{ color: theme.text, fontWeight: '700' }}>온디바이스 모델 다운로드</Text>
                     </View>
-                    <Text style={{ color: theme.subtext, marginTop: 6 }}>약 870MB • Wi‑Fi 권장</Text>
+                    <Text style={{ color: theme.subtext, marginTop: 6 }}>약 720MB • Wi‑Fi 권장</Text>
                   </TouchableOpacity>
                 )}
               </View>
