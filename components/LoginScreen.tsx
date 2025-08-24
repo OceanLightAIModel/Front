@@ -1,7 +1,7 @@
 // LoginScreen.tsx
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { API_BASE_URL, setTokens } from './api';  // setTokens import 추가
+import { API_BASE_URL, setTokens } from './api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
@@ -11,7 +11,6 @@ import {
   StyleSheet,
   SafeAreaView,
   StatusBar,
-  Animated,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
@@ -32,7 +31,6 @@ interface LoginScreenProps {
   setLoginEmailError: (error: string) => void;
   loginPasswordError: string;
   setLoginPasswordError: (error: string) => void;
-  fadeAnimation: Animated.Value;
   onLogin: () => void;
   onNavigateToSignup: () => void;
   onNavigateToFindAccount: () => void;
@@ -40,7 +38,7 @@ interface LoginScreenProps {
   showCustomAlert: (
     title: string,
     message: string,
-    buttons?: Array<{ text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive' }>,
+    buttons?: Array<{ text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive' }>
   ) => void;
 }
 
@@ -53,7 +51,6 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
   setLoginEmailError,
   loginPasswordError,
   setLoginPasswordError,
-  fadeAnimation,
   onLogin,
   onNavigateToSignup,
   onNavigateToFindAccount,
@@ -104,7 +101,6 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
     }
     setIsLoading(true);
     try {
-      // FastAPI OAuth2PasswordRequestForm: username/email + password를 form-urlencoded로 전송
       const formData = new URLSearchParams();
       formData.append('username', email.trim());
       formData.append('password', password);
@@ -120,18 +116,13 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
 
       const { access_token, refresh_token } = response.data;
 
-      // ✅ rememberMe 여부와 상관없이 로그인 성공 시 토큰 저장
+      // 로그인 성공 시 토큰 저장
       await setTokens(access_token, refresh_token);
-
-      // rememberMe가 false인 경우에도 현재 세션에서는 토큰을 사용하지만,
-      // 로그아웃하거나 앱을 종료할 때 clearTokens()를 호출해 토큰을 지우면 됩니다.
-
       onLogin();
     } catch (error: any) {
       if (axios.isAxiosError(error) && error.response) {
         const msg =
-          (error.response.data?.detail || error.response.data?.message) ??
-          '이메일 또는 비밀번호가 올바르지 않습니다.';
+          error.response.data?.detail || error.response.data?.message || '이메일 또는 비밀번호가 올바르지 않습니다.';
         showCustomAlert('로그인 실패', msg);
       } else {
         showCustomAlert('로그인 실패', '서버에 연결할 수 없습니다.');
@@ -155,11 +146,13 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.loginContainer}>
-            <Animated.View style={[styles.logoContainer, { opacity: fadeAnimation }]}>
+            {/* 상단 로고/타이틀 영역 */}
+            <View style={styles.logoContainer}>
               <Text style={styles.appTitle}>AI Pet Care</Text>
               <Text style={styles.appSubtitle}>AI 펫 케어 솔루션</Text>
-            </Animated.View>
+            </View>
 
+            {/* 로그인 폼 영역 */}
             <View style={styles.formContainer}>
               <View style={styles.loginBox}>
                 <Text style={styles.loginTitle}>로그인</Text>
@@ -215,6 +208,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
                 </View>
                 {loginPasswordError ? <Text style={styles.errorText}>{loginPasswordError}</Text> : null}
 
+                {/* 로그인 유지하기 체크 */}
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
                   <TouchableOpacity
                     onPress={() => setRememberMe((prev) => !prev)}
@@ -228,6 +222,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
                     <Text style={{ marginLeft: 6, color: '#333', fontSize: 14 }}>로그인 유지하기</Text>
                   </TouchableOpacity>
                 </View>
+
+                {/* 로그인 버튼 */}
                 <TouchableOpacity
                   style={styles.loginButton}
                   onPress={handleLoginPress}
@@ -240,10 +236,16 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
                   )}
                 </TouchableOpacity>
 
+                {/* 회원가입 / 기타 링크 */}
                 <View style={styles.linkContainer}>
                   <TouchableOpacity onPress={onNavigateToSignup}>
                     <Text style={styles.linkText}>회원가입</Text>
                   </TouchableOpacity>
+                  {/* 다른 링크를 추가하려면 아래처럼 컴포넌트를 추가하세요 */}
+                  {/* <Text style={styles.linkDivider}>|</Text>
+                  <TouchableOpacity onPress={onNavigateToFindAccount}>
+                    <Text style={styles.linkText}>계정 찾기</Text>
+                  </TouchableOpacity> */}
                 </View>
               </View>
             </View>
@@ -256,7 +258,6 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
   );
 };
 
-// 스타일 정의 (변경 없음)
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8f9fa' },
   keyboardContainer: { flex: 1 },
@@ -264,7 +265,13 @@ const styles = StyleSheet.create({
   scrollContent: { flexGrow: 1 },
   loginContainer: { flex: 1, paddingHorizontal: 30 },
   logoContainer: { flex: 0.5, justifyContent: 'center', alignItems: 'center', paddingTop: 10 },
-  appTitle: { fontSize: 24, fontWeight: 'bold', color: '#0080ff', marginBottom: 5, textAlign: 'center' },
+  appTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#0080ff',
+    marginBottom: 5,
+    textAlign: 'center',
+  },
   appSubtitle: { fontSize: 14, color: '#666', textAlign: 'center' },
   formContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loginBox: {
@@ -280,7 +287,13 @@ const styles = StyleSheet.create({
     elevation: 0,
   },
   bottomSpacer: { flex: 0.5 },
-  loginTitle: { fontSize: 22, fontWeight: 'bold', color: '#333', textAlign: 'center', marginBottom: 15 },
+  loginTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 15,
+  },
   input: {
     height: 50,
     borderWidth: 0,
@@ -291,7 +304,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#333',
   },
-  errorText: { color: '#dc3545', fontSize: 12, marginTop: -10, marginBottom: 15, paddingHorizontal: 5 },
+  errorText: {
+    color: '#dc3545',
+    fontSize: 12,
+    marginTop: -10,
+    marginBottom: 15,
+    paddingHorizontal: 5,
+  },
   loginButton: {
     height: 50,
     backgroundColor: '#0080ff',

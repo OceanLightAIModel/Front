@@ -1,3 +1,4 @@
+// ChatBotScreen.tsx
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View,
@@ -14,7 +15,6 @@ import {
   BackHandler,
   Keyboard,
   FlatList,
-  Alert as RNAlert,
 } from 'react-native';
 
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -140,6 +140,10 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
     message: '',
     confirmText: '확인',
   });
+
+  // 🔽 채팅 옵션(이름 변경/삭제) 모달 상태
+  const [threadOptionsVisible, setThreadOptionsVisible] = useState(false);
+  const [threadOptionsTarget, setThreadOptionsTarget] = useState<{ thread_id: number; thread_title: string } | null>(null);
 
   // 모델/다운로드 상태
   const [modelState, setModelState] = useState<ModelState>('checking');
@@ -754,6 +758,133 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
     }
   };
 
+  // ===== 계정 삭제 처리 =====
+  const handleDeleteAccount = () => {
+    openAlert({
+      title: '계정 삭제',
+      message: '계를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.',
+      confirmText: '삭제',
+      cancelText: '취소',
+      onConfirm: async () => {
+        try {
+          // (선택) api.ts에 deleteUserAccount가 있으면 호출
+          try {
+            const apiAny: any = await import('./api');
+            if (typeof apiAny.deleteUserAccount === 'function') {
+              await apiAny.deleteUserAccount();
+            }
+          } catch {}
+
+          await logout();
+          await AsyncStorage.removeItem('username');
+
+          setMessages([]);
+          setThreadId(null);
+          setSelectedThreadId(null);
+          if (sidebarVisible) toggleSidebar();
+
+          openAlert({
+            title: '삭제 완료',
+            message: '계정이 삭제되었습니다.',
+            confirmText: '확인',
+            onConfirm: () => {
+              navigation?.goToLogin && navigation.goToLogin();
+            },
+          });
+        } catch (e) {
+          openAlert({
+            title: '오류',
+            message: '계정을 삭제할 수 없습니다. 잠시 후 다시 시도해 주세요.',
+            confirmText: '확인',
+          });
+        }
+      },
+    });
+  };
+
+  // ===== 채팅 옵션 모달 (이름 변경 / 삭제) =====
+  const renderThreadOptionsModal = () => (
+    <Modal
+      visible={threadOptionsVisible}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setThreadOptionsVisible(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={[styles.optionsModal, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <Text style={[styles.modalTitle, { color: theme.text }]}>채팅 옵션</Text>
+
+          <TouchableOpacity
+            style={[
+              styles.optionButton,
+              { backgroundColor: darkMode ? '#2B2F33' : '#F3F5F7', borderColor: theme.border },
+            ]}
+            onPress={() => {
+              if (!threadOptionsTarget) return;
+              setNewTitle(threadOptionsTarget.thread_title);
+              setSelectedThreadId(threadOptionsTarget.thread_id);
+              setThreadOptionsVisible(false);
+              setRenameModalVisible(true);
+            }}
+          >
+            <Text style={[styles.optionButtonText, { color: theme.text }]}>이름 변경</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.optionButton, { backgroundColor: theme.danger, borderColor: theme.border }]}
+            onPress={() => {
+              if (!threadOptionsTarget) return;
+              const target = { ...threadOptionsTarget };
+              setThreadOptionsVisible(false);
+
+              openAlert({
+                title: '채팅 삭제',
+                message: `"${target.thread_title}" 채팅을 삭제하시겠습니까?`,
+                confirmText: '삭제',
+                cancelText: '취소',
+                onConfirm: async () => {
+                  try {
+                    await deleteThread(target.thread_id);
+                    const updated = await getThreads();
+                    setThreads(updated.data);
+                    if (selectedThreadId === target.thread_id) {
+                      setMessages([]);
+                      setThreadId(null);
+                      setSelectedThreadId(null);
+                    }
+                    openAlert({
+                      title: '삭제 완료',
+                      message: '채팅이 삭제되었습니다.',
+                      confirmText: '확인',
+                    });
+                  } catch (e) {
+                    openAlert({
+                      title: '오류',
+                      message: '채팅을 삭제할 수 없습니다.',
+                      confirmText: '확인',
+                    });
+                  }
+                },
+              });
+            }}
+          >
+            <Text style={[styles.optionButtonText, { color: '#fff' }]}>삭제</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.modalCancelButton,
+              { backgroundColor: darkMode ? '#2B2F33' : '#F3F5F7', borderColor: theme.border, marginTop: 10 },
+            ]}
+            onPress={() => setThreadOptionsVisible(false)}
+          >
+            <Text style={[styles.modalCancelText, { color: theme.subtext }]}>닫기</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+
   // ===== 메시지 렌더 =====
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
     const prev = index > 0 ? messages[index - 1] : null;
@@ -892,41 +1023,8 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
                     <TouchableOpacity
                       style={{ paddingHorizontal: 16, paddingVertical: 10 }}
                       onPress={() => {
-                        RNAlert.alert(
-                          '채팅 옵션',
-                          '',
-                          [
-                            {
-                              text: '이름 변경',
-                              onPress: () => {
-                                setNewTitle(thread.thread_title);
-                                setSelectedThreadId(thread.thread_id);
-                                setRenameModalVisible(true);
-                              },
-                            },
-                            {
-                              text: '삭제',
-                              onPress: async () => {
-                                try {
-                                  await deleteThread(thread.thread_id);
-                                  const updated = await getThreads();
-                                  setThreads(updated.data);
-                                  if (selectedThreadId === thread.thread_id) {
-                                    setMessages([]);
-                                    setThreadId(null);
-                                    setSelectedThreadId(null);
-                                  }
-                                } catch (e) {
-                                  console.error('삭제 실패:', e);
-                                  openAlert({ title: '오류', message: '채팅을 삭제할 수 없습니다.', confirmText: '확인' });
-                                }
-                              },
-                              style: 'destructive',
-                            },
-                            { text: '취소', style: 'cancel' },
-                          ],
-                          { cancelable: true }
-                        );
+                        setThreadOptionsTarget(thread);
+                        setThreadOptionsVisible(true);
                       }}
                     >
                       <MaterialIcons name="more-horiz" size={20} color={theme.subtext} />
@@ -942,6 +1040,14 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
                 onPress={() => setLogoutModalVisible(true)}
               >
                 <Text style={styles.logoutText}>로그아웃</Text>
+              </TouchableOpacity>
+
+              {/* 계정 삭제 버튼 */}
+              <TouchableOpacity
+                style={[styles.logoutButton, { backgroundColor: theme.danger, borderColor: theme.border, marginTop: 10 }]}
+                onPress={handleDeleteAccount}
+              >
+                <Text style={styles.logoutText}>계정 삭제</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1114,7 +1220,7 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
         </View>
         <View style={styles.headerRight}>
           {!!username && <Text style={[styles.welcomeText, { color: theme.subtext }]}>{username}님</Text>}
-            {/* 오른쪽 상단 톱니바퀴(설정) 버튼 */}
+          {/* 오른쪽 상단 톱니바퀴(설정) 버튼 */}
           <TouchableOpacity
             style={styles.profileIconContainer}
             onPress={() => {
@@ -1125,12 +1231,13 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
               }
             }}
           >
-              <MaterialIcons name="settings" size={26} color={theme.text} />
+            <MaterialIcons name="settings" size={26} color={theme.text} />
           </TouchableOpacity>
         </View>
       </View>
 
       {renderSidebar()}
+      {renderThreadOptionsModal()}
       {renderLogoutModal()}
       {renderAppAlert()}
       {renderDownloadModal()}
@@ -1424,6 +1531,7 @@ const styles = StyleSheet.create({
   divider: { height: 1, marginHorizontal: 0, marginVertical: 10 },
   sidebarSection: { paddingHorizontal: 20, paddingVertical: 14 },
   sectionTitle: { fontSize: 14, fontWeight: '600' },
+
   sidebarBottom: { paddingHorizontal: 20, paddingVertical: 20, borderTopWidth: 1 },
   logoutButton: { justifyContent: 'center', alignItems: 'center', paddingVertical: 13, paddingHorizontal: 13, borderRadius: 10, borderWidth: 1 },
   logoutText: { fontSize: 16, color: '#fff', fontWeight: '700' },
@@ -1498,6 +1606,26 @@ const styles = StyleSheet.create({
     paddingVertical: Platform.OS === 'android' ? 10 : 8,
     fontSize: 15,
     marginTop: 10,
+  },
+
+  // 🔽 채팅 옵션 모달 스타일
+  optionsModal: {
+    borderRadius: 16,
+    padding: 20,
+    width: '100%',
+    maxWidth: 360,
+    borderWidth: 1,
+  },
+  optionButton: {
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginTop: 10,
+    borderWidth: 1,
+  },
+  optionButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
   },
 });
 

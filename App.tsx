@@ -254,8 +254,6 @@ const App = () => {
             setLoginEmailError={setLoginEmailError}
             loginPasswordError={loginPasswordError}
             setLoginPasswordError={setLoginPasswordError}
-            fadeAnimation={fadeAnimation}
-            // 로그인 성공 시: 로그인 상태를 true로 설정하고 챗 화면으로 이동
             onLogin={() => {
               setLoggedIn(true);
               navigateToScreen('chat');
