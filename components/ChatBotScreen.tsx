@@ -143,7 +143,8 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
 
   // 🔽 채팅 옵션(이름 변경/삭제) 모달 상태
   const [threadOptionsVisible, setThreadOptionsVisible] = useState(false);
-  const [threadOptionsTarget, setThreadOptionsTarget] = useState<{ thread_id: number; thread_title: string } | null>(null);
+  const [threadOptionsTarget, setThreadOptionsTarget] =
+    useState<{ thread_id: number; thread_title: string } | null>(null);
 
   // 모델/다운로드 상태
   const [modelState, setModelState] = useState<ModelState>('checking');
@@ -166,7 +167,8 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
   const spinnerAnimation = useRef(new Animated.Value(0)).current;
   const cursorAnimation = useRef(new Animated.Value(1)).current;
 
-  const openAlert = (cfg: Omit<AppAlertConfig, 'visible'>) => setAppAlert({ visible: true, ...cfg });
+  const openAlert = (cfg: Omit<AppAlertConfig, 'visible'>) =>
+    setAppAlert({ visible: true, ...cfg });
   const closeAlert = () => setAppAlert((prev) => ({ ...prev, visible: false }));
 
   const quickActions = [
@@ -309,7 +311,8 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
           setModelState('idle');
           openAlert({
             title: '온디바이스 모델 다운로드',
-            message: '로컬에서 동작하는 AI 모델(약 870MB)을 다운로드합니다.\n데이터 사용량이 크니 Wi‑Fi를 권장해요.',
+            message:
+              '로컬에서 동작하는 AI 모델(약 870MB)을 다운로드합니다.\n데이터 사용량이 크니 Wi‑Fi를 권장해요.',
             cancelText: '나중에',
             confirmText: '다운로드',
             onConfirm: () => {
@@ -394,7 +397,8 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
       if (!check.ok) {
         openAlert({
           title: '저장공간 부족',
-          message: '온디바이스 모델을 받기 위해 충분한 저장공간이 필요합니다.\n불필요한 파일을 지운 뒤 다시 시도해 주세요.',
+          message:
+            '온디바이스 모델을 받기 위해 충분한 저장공간이 필요합니다.\n불필요한 파일을 지운 뒤 다시 시도해 주세요.',
           confirmText: '확인',
         });
         return;
@@ -641,7 +645,8 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
   const formatMessageTime = (d: Date) => `${two(d.getHours())}:${two(d.getMinutes())}`;
   const isSameDay = (a: Date, b: Date) =>
     a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-  const shouldShowDateSeparator = (current: Message, prev: Message | null) => !!prev && !isSameDay(current.timestamp, prev.timestamp);
+  const shouldShowDateSeparator = (current: Message, prev: Message | null) =>
+    !!prev && !isSameDay(current.timestamp, prev.timestamp);
   const ensureStartTime = () => {
     if (!chatStartTime) setChatStartTime(new Date());
   };
@@ -720,7 +725,8 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
       if (!(modelState === 'ready' && llamaReady)) {
         openAlert({
           title: '모델 준비 중',
-          message: '온디바이스 모델이 아직 준비되지 않았습니다. 모델을 다운로드/초기화한 뒤 다시 시도해 주세요.',
+          message:
+            '온디바이스 모델이 아직 준비되지 않았습니다. 모델을 다운로드/초기화한 뒤 다시 시도해 주세요.',
           confirmText: '확인',
         });
         setIsDiagnosing(false);
@@ -749,7 +755,8 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
       console.error('LLM 응답 실패:', e);
       openAlert({
         title: '오류',
-        message: '로컬 모델 응답에 실패했습니다. 네트워크 또는 메모리 상태 확인 후 다시 시도해 주세요.',
+        message:
+          '로컬 모델 응답에 실패했습니다. 네트워크 또는 메모리 상태 확인 후 다시 시도해 주세요.',
         confirmText: '확인',
       });
       setIsDiagnosing(false);
@@ -758,52 +765,8 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
     }
   };
 
-  // ===== 계정 삭제 처리 =====
-  const handleDeleteAccount = () => {
-    openAlert({
-      title: '계정 삭제',
-      message: '계를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.',
-      confirmText: '삭제',
-      cancelText: '취소',
-      onConfirm: async () => {
-        try {
-          // (선택) api.ts에 deleteUserAccount가 있으면 호출
-          try {
-            const apiAny: any = await import('./api');
-            if (typeof apiAny.deleteUserAccount === 'function') {
-              await apiAny.deleteUserAccount();
-            }
-          } catch {}
-
-          await logout();
-          await AsyncStorage.removeItem('username');
-
-          setMessages([]);
-          setThreadId(null);
-          setSelectedThreadId(null);
-          if (sidebarVisible) toggleSidebar();
-
-          openAlert({
-            title: '삭제 완료',
-            message: '계정이 삭제되었습니다.',
-            confirmText: '확인',
-            onConfirm: () => {
-              navigation?.goToLogin && navigation.goToLogin();
-            },
-          });
-        } catch (e) {
-          openAlert({
-            title: '오류',
-            message: '계정을 삭제할 수 없습니다. 잠시 후 다시 시도해 주세요.',
-            confirmText: '확인',
-          });
-        }
-      },
-    });
-  };
-
-  // ===== 채팅 옵션 모달 (이름 변경 / 삭제) =====
-  const renderThreadOptionsModal = () => (
+  // ===== 채팅 옵션 UI (삭제 UI와 동일 카드 스타일) =====
+  const renderThreadOptionsAlert = () => (
     <Modal
       visible={threadOptionsVisible}
       transparent
@@ -811,75 +774,86 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
       onRequestClose={() => setThreadOptionsVisible(false)}
     >
       <View style={styles.modalOverlay}>
-        <View style={[styles.optionsModal, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-          <Text style={[styles.modalTitle, { color: theme.text }]}>채팅 옵션</Text>
+        <View style={[styles.appAlert, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <Text style={[styles.appAlertTitle, { color: theme.text }]}>채팅 옵션</Text>
+          <Text style={[styles.appAlertMessage, { color: theme.subtext }]}>
+            이 채팅에 대해 어떤 작업을 하시겠어요?
+          </Text>
 
-          <TouchableOpacity
-            style={[
-              styles.optionButton,
-              { backgroundColor: darkMode ? '#2B2F33' : '#F3F5F7', borderColor: theme.border },
-            ]}
-            onPress={() => {
-              if (!threadOptionsTarget) return;
-              setNewTitle(threadOptionsTarget.thread_title);
-              setSelectedThreadId(threadOptionsTarget.thread_id);
-              setThreadOptionsVisible(false);
-              setRenameModalVisible(true);
-            }}
-          >
-            <Text style={[styles.optionButtonText, { color: theme.text }]}>이름 변경</Text>
-          </TouchableOpacity>
+          {/* 1행: 이름 변경(Primary) / 삭제(Danger) */}
+          <View style={styles.appAlertButtons}>
+            <TouchableOpacity
+              style={[
+                styles.appAlertButtonPrimary,
+                { backgroundColor: theme.primary, marginLeft: 0 },
+              ]}
+              onPress={() => {
+                if (!threadOptionsTarget) return;
+                setNewTitle(threadOptionsTarget.thread_title);
+                setSelectedThreadId(threadOptionsTarget.thread_id);
+                setThreadOptionsVisible(false);
+                setRenameModalVisible(true);
+              }}
+            >
+              <Text style={styles.appAlertButtonPrimaryText}>이름 변경</Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.optionButton, { backgroundColor: theme.danger, borderColor: theme.border }]}
-            onPress={() => {
-              if (!threadOptionsTarget) return;
-              const target = { ...threadOptionsTarget };
-              setThreadOptionsVisible(false);
-
-              openAlert({
-                title: '채팅 삭제',
-                message: `"${target.thread_title}" 채팅을 삭제하시겠습니까?`,
-                confirmText: '삭제',
-                cancelText: '취소',
-                onConfirm: async () => {
-                  try {
-                    await deleteThread(target.thread_id);
-                    const updated = await getThreads();
-                    setThreads(updated.data);
-                    if (selectedThreadId === target.thread_id) {
-                      setMessages([]);
-                      setThreadId(null);
-                      setSelectedThreadId(null);
+            <TouchableOpacity
+              style={[
+                styles.appAlertButtonPrimary,
+                { backgroundColor: theme.danger },
+              ]}
+              onPress={() => {
+                if (!threadOptionsTarget) return;
+                const target = { ...threadOptionsTarget };
+                setThreadOptionsVisible(false);
+                openAlert({
+                  title: '채팅 삭제',
+                  message: `"${target.thread_title}" 채팅을 삭제하시겠습니까?`,
+                  confirmText: '삭제',
+                  cancelText: '취소',
+                  onConfirm: async () => {
+                    try {
+                      await deleteThread(target.thread_id);
+                      const updated = await getThreads();
+                      setThreads(updated.data);
+                      if (selectedThreadId === target.thread_id) {
+                        setMessages([]);
+                        setThreadId(null);
+                        setSelectedThreadId(null);
+                      }
+                      openAlert({
+                        title: '삭제 완료',
+                        message: '채팅이 삭제되었습니다.',
+                        confirmText: '확인',
+                      });
+                    } catch (e) {
+                      openAlert({
+                        title: '오류',
+                        message: '채팅을 삭제할 수 없습니다.',
+                        confirmText: '확인',
+                      });
                     }
-                    openAlert({
-                      title: '삭제 완료',
-                      message: '채팅이 삭제되었습니다.',
-                      confirmText: '확인',
-                    });
-                  } catch (e) {
-                    openAlert({
-                      title: '오류',
-                      message: '채팅을 삭제할 수 없습니다.',
-                      confirmText: '확인',
-                    });
-                  }
-                },
-              });
-            }}
-          >
-            <Text style={[styles.optionButtonText, { color: '#fff' }]}>삭제</Text>
-          </TouchableOpacity>
+                  },
+                });
+              }}
+            >
+              <Text style={styles.appAlertButtonPrimaryText}>삭제</Text>
+            </TouchableOpacity>
+          </View>
 
-          <TouchableOpacity
-            style={[
-              styles.modalCancelButton,
-              { backgroundColor: darkMode ? '#2B2F33' : '#F3F5F7', borderColor: theme.border, marginTop: 10 },
-            ]}
-            onPress={() => setThreadOptionsVisible(false)}
-          >
-            <Text style={[styles.modalCancelText, { color: theme.subtext }]}>닫기</Text>
-          </TouchableOpacity>
+          {/* 2행: 닫기(중립) */}
+          <View style={styles.appAlertButtons}>
+            <TouchableOpacity
+              style={[
+                styles.appAlertButton,
+                { backgroundColor: darkMode ? '#2B2F33' : '#F3F5F7', borderColor: theme.border },
+              ]}
+              onPress={() => setThreadOptionsVisible(false)}
+            >
+              <Text style={[styles.appAlertButtonText, { color: theme.subtext }]}>닫기</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </Modal>
@@ -958,13 +932,17 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
       >
         {isDiagnosing ? (
           <View style={styles.diagnosingContainer}>
-            <Animated.View style={[styles.loadingSpinner, { borderColor: theme.spinner, transform: [{ rotate: spin }] }]} />
+            <Animated.View
+              style={[styles.loadingSpinner, { borderColor: theme.spinner, transform: [{ rotate: spin }] }]}
+            />
             <Text style={[styles.diagnosingText, { color: theme.subtext }]}>생각 중…</Text>
           </View>
         ) : (
           <View style={styles.typingContainer}>
             <Text style={[styles.messageText, { color: theme.text }]}>{typingText}</Text>
-            <Animated.View style={[styles.typingCursor, { backgroundColor: theme.cursor, opacity: cursorAnimation }]} />
+            <Animated.View
+              style={[styles.typingCursor, { backgroundColor: theme.cursor, opacity: cursorAnimation }]}
+            />
           </View>
         )}
       </View>
@@ -979,7 +957,9 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
           style={[styles.sidebar, { left: sidebarAnimation, backgroundColor: theme.surface, borderRightColor: theme.border }]}
         >
           <View style={styles.sidebarContent}>
-            <View style={[styles.sidebarTopHeader, { backgroundColor: theme.headerBg, borderBottomColor: theme.border }]}>
+            <View
+              style={[styles.sidebarTopHeader, { backgroundColor: theme.headerBg, borderBottomColor: theme.border }]}
+            >
               <View
                 style={[
                   styles.searchInputContainer,
@@ -1042,13 +1022,7 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
                 <Text style={styles.logoutText}>로그아웃</Text>
               </TouchableOpacity>
 
-              {/* 계정 삭제 버튼 */}
-              <TouchableOpacity
-                style={[styles.logoutButton, { backgroundColor: theme.danger, borderColor: theme.border, marginTop: 10 }]}
-                onPress={handleDeleteAccount}
-              >
-                <Text style={styles.logoutText}>계정 삭제</Text>
-              </TouchableOpacity>
+              {/* ❌ 계정 삭제 버튼은 요청에 따라 제거됨 */}
             </View>
           </View>
         </Animated.View>
@@ -1057,7 +1031,12 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
   );
 
   const renderLogoutModal = () => (
-    <Modal visible={logoutModalVisible} transparent animationType="fade" onRequestClose={() => setLogoutModalVisible(false)}>
+    <Modal
+      visible={logoutModalVisible}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setLogoutModalVisible(false)}
+    >
       <View style={styles.modalOverlay}>
         <View style={[styles.logoutConfirmModal, { backgroundColor: theme.surface }]}>
           <View style={styles.modalHeader}>
@@ -1069,7 +1048,10 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
           </Text>
           <View style={styles.logoutModalButtons}>
             <TouchableOpacity
-              style={[styles.logoutCancelButton, { backgroundColor: darkMode ? '#2B2F33' : '#F3F5F7', borderColor: theme.border }]}
+              style={[
+                styles.logoutCancelButton,
+                { backgroundColor: darkMode ? '#2B2F33' : '#F3F5F7', borderColor: theme.border },
+              ]}
               onPress={() => setLogoutModalVisible(false)}
             >
               <Text style={[styles.logoutCancelText, { color: theme.subtext }]}>취소</Text>
@@ -1109,7 +1091,10 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
           <View style={styles.appAlertButtons}>
             {appAlert.cancelText ? (
               <TouchableOpacity
-                style={[styles.appAlertButton, { backgroundColor: darkMode ? '#2B2F33' : '#F3F5F7', borderColor: theme.border }]}
+                style={[
+                  styles.appAlertButton,
+                  { backgroundColor: darkMode ? '#2B2F33' : '#F3F5F7', borderColor: theme.border },
+                ]}
                 onPress={() => {
                   closeAlert();
                   appAlert.onCancel?.();
@@ -1144,13 +1129,26 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
           <Text style={[styles.modalSubtitle, { color: theme.subtext, marginBottom: 12 }]}>
             {Math.round(downloadProgress * 100)}%
           </Text>
-          <View style={[styles.progressBar, { backgroundColor: darkMode ? '#30353a' : '#EEF1F4', borderColor: theme.border }]}>
-            <View style={[styles.progressFill, { width: `${Math.round(downloadProgress * 100)}%`, backgroundColor: theme.primary }]} />
+          <View
+            style={[
+              styles.progressBar,
+              { backgroundColor: darkMode ? '#30353a' : '#EEF1F4', borderColor: theme.border },
+            ]}
+          >
+            <View
+              style={[
+                styles.progressFill,
+                { width: `${Math.round(downloadProgress * 100)}%`, backgroundColor: theme.primary },
+              ]}
+            />
           </View>
 
           <View style={{ flexDirection: 'row', marginTop: 16 }}>
             <TouchableOpacity
-              style={[styles.modalCancelButton, { backgroundColor: darkMode ? '#2B2F33' : '#F3F5F7', borderColor: theme.border, flex: 1 }]}
+              style={[
+                styles.modalCancelButton,
+                { backgroundColor: darkMode ? '#2B2F33' : '#F3F5F7', borderColor: theme.border, flex: 1 },
+              ]}
               onPress={cancelDownload}
             >
               <Text style={[styles.modalCancelText, { color: theme.subtext }]}>취소</Text>
@@ -1165,12 +1163,20 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
   const [renameModalVisible, setRenameModalVisible] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const renderRenameModal = () => (
-    <Modal visible={renameModalVisible} transparent animationType="fade" onRequestClose={() => setRenameModalVisible(false)}>
+    <Modal
+      visible={renameModalVisible}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setRenameModalVisible(false)}
+    >
       <View style={styles.modalOverlay}>
         <View style={[styles.renameModal, { backgroundColor: theme.surface, borderColor: theme.border }]}>
           <Text style={[styles.modalTitle, { color: theme.text }]}>채팅 이름 변경</Text>
           <TextInput
-            style={[styles.renameInput, { color: theme.text, borderColor: theme.border, backgroundColor: darkMode ? '#1F2426' : '#F6F8FA' }]}
+            style={[
+              styles.renameInput,
+              { color: theme.text, borderColor: theme.border, backgroundColor: darkMode ? '#1F2426' : '#F6F8FA' },
+            ]}
             placeholder="새 제목 입력"
             placeholderTextColor={theme.subtext}
             value={newTitle}
@@ -1178,7 +1184,10 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
           />
           <View style={{ flexDirection: 'row', marginTop: 12 }}>
             <TouchableOpacity
-              style={[styles.modalCancelButton, { backgroundColor: darkMode ? '#2B2F33' : '#F3F5F7', borderColor: theme.border, flex: 1 }]}
+              style={[
+                styles.modalCancelButton,
+                { backgroundColor: darkMode ? '#2B2F33' : '#F3F5F7', borderColor: theme.border, flex: 1 },
+              ]}
               onPress={() => setRenameModalVisible(false)}
             >
               <Text style={[styles.modalCancelText, { color: theme.subtext }]}>취소</Text>
@@ -1237,7 +1246,7 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
       </View>
 
       {renderSidebar()}
-      {renderThreadOptionsModal()}
+      {renderThreadOptionsAlert()}
       {renderLogoutModal()}
       {renderAppAlert()}
       {renderDownloadModal()}
@@ -1259,8 +1268,17 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
               showsVerticalScrollIndicator={false}
             >
               <View style={styles.logoSection}>
-                <View style={[styles.logoContainer, { backgroundColor: darkMode ? '#1F2426' : '#F6F8FA', borderColor: theme.border }]}>
-                  <Image source={chatTheme ? require('../logo/cat.png') : require('../logo/dog.png')} style={styles.logoImage} resizeMode="contain" />
+                <View
+                  style={[
+                    styles.logoContainer,
+                    { backgroundColor: darkMode ? '#1F2426' : '#F6F8FA', borderColor: theme.border },
+                  ]}
+                >
+                  <Image
+                    source={chatTheme ? require('../logo/cat.png') : require('../logo/dog.png')}
+                    style={styles.logoImage}
+                    resizeMode="contain"
+                  />
                 </View>
                 <Text style={[styles.welcomeTitle, { color: theme.text }]}>무엇을 도와드릴까요?</Text>
 
@@ -1278,10 +1296,22 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
                       <MaterialIcons name="cloud-download" size={20} color={theme.primary} style={{ marginRight: 8 }} />
                       <Text style={{ color: theme.text, fontWeight: '700' }}>다운로드 중...</Text>
                     </View>
-                    <View style={[styles.progressBar, { backgroundColor: darkMode ? '#30353a' : '#EEF1F4', borderColor: theme.border }]}>
-                      <View style={[styles.progressFill, { width: `${Math.round(downloadProgress * 100)}%`, backgroundColor: theme.primary }]} />
+                    <View
+                      style={[
+                        styles.progressBar,
+                        { backgroundColor: darkMode ? '#30353a' : '#EEF1F4', borderColor: theme.border },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.progressFill,
+                          { width: `${Math.round(downloadProgress * 100)}%`, backgroundColor: theme.primary },
+                        ]}
+                      />
                     </View>
-                    <Text style={{ color: theme.subtext, marginTop: 6 }}>{Math.round(downloadProgress * 100)}%</Text>
+                    <Text style={{ color: theme.subtext, marginTop: 6 }}>
+                      {Math.round(downloadProgress * 100)}%
+                    </Text>
                   </View>
                 ) : (
                   <TouchableOpacity
@@ -1311,7 +1341,9 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
                       <MaterialIcons name={action.icon} size={24} color={theme.primary} style={{ marginRight: 12 }} />
                       <Text style={[styles.quickActionTitle, { color: theme.text }]}>{action.title}</Text>
                     </View>
-                    <Text style={[styles.quickActionDescription, { color: theme.subtext }]}>{action.description}</Text>
+                    <Text style={[styles.quickActionDescription, { color: theme.subtext }]}>
+                      {action.description}
+                    </Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -1333,7 +1365,12 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
               ListHeaderComponent={
                 chatStartTime ? (
                   <View style={styles.chatStartTimeContainer}>
-                    <Text style={[styles.chatStartTimeText, { backgroundColor: theme.chipBg, color: theme.chipText }]}>
+                    <Text
+                      style={[
+                        styles.chatStartTimeText,
+                        { backgroundColor: theme.chipBg, color: theme.chipText },
+                      ]}
+                    >
                       {formatChatStartTime(chatStartTime)}
                     </Text>
                   </View>
@@ -1389,10 +1426,17 @@ const ChatBotScreen: React.FC<ChatBotScreenProps> = ({ navigation, chatTheme, da
             />
             <TouchableOpacity
               onPress={() => handleSend()}
-              style={[styles.sendButton, { backgroundColor: input.trim() ? theme.primary : (darkMode ? '#2B2F33' : '#E6EAEE') }]}
+              style={[
+                styles.sendButton,
+                { backgroundColor: input.trim() ? theme.primary : (darkMode ? '#2B2F33' : '#E6EAEE') },
+              ]}
               disabled={!input.trim()}
             >
-              <MaterialIcons name="send" size={18} color={input.trim() ? '#fff' : (darkMode ? '#565B60' : '#98A2AE')} />
+              <MaterialIcons
+                name="send"
+                size={18}
+                color={input.trim() ? '#fff' : (darkMode ? '#565B60' : '#98A2AE')}
+              />
             </TouchableOpacity>
           </View>
         </View>
@@ -1445,7 +1489,14 @@ const styles = StyleSheet.create({
   welcomeTitle: { fontSize: 22, fontWeight: '800', marginBottom: 8 },
 
   // 모델 상태 카드/배지/프로그레스
-  readyBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 8, borderRadius: 999, marginTop: 6 },
+  readyBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 999,
+    marginTop: 6,
+  },
   downloadCard: {
     marginTop: 8,
     width: '100%',
@@ -1484,11 +1535,29 @@ const styles = StyleSheet.create({
   quickActionDescription: { fontSize: 13, lineHeight: 19 },
 
   // 메시지
-  userMessageContainer: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'flex-end', marginVertical: 4, paddingHorizontal: 10 },
-  botMessageContainer: { flexDirection: 'row', justifyContent: 'flex-start', alignItems: 'flex-start', marginVertical: 4, paddingHorizontal: 0 },
+  userMessageContainer: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'flex-end',
+    marginVertical: 4,
+    paddingHorizontal: 10,
+  },
+  botMessageContainer: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
+    marginVertical: 4,
+    paddingHorizontal: 0,
+  },
   botAvatar: { width: 40, height: 40, borderRadius: 20, marginRight: 6, marginTop: 2 },
   userAvatar: { width: 35, height: 35, borderRadius: 17.5, marginLeft: 6, marginTop: 2 },
-  messageBubble: { paddingVertical: 10, paddingHorizontal: 13, borderRadius: 18, maxWidth: '78%', borderWidth: 1 },
+  messageBubble: {
+    paddingVertical: 10,
+    paddingHorizontal: 13,
+    borderRadius: 18,
+    maxWidth: '78%',
+    borderWidth: 1,
+  },
   messageText: { fontSize: 15, lineHeight: 22 },
 
   chatStartTimeContainer: { alignItems: 'center', marginVertical: 18 },
@@ -1499,7 +1568,14 @@ const styles = StyleSheet.create({
   botTimeText: { fontSize: 11 },
 
   diagnosingContainer: { flexDirection: 'row', alignItems: 'center', padding: 5 },
-  loadingSpinner: { width: 16, height: 16, borderRadius: 8, borderWidth: 2, borderTopColor: 'transparent', marginRight: 8 },
+  loadingSpinner: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderTopColor: 'transparent',
+    marginRight: 8,
+  },
   diagnosingText: { fontSize: 14 },
   typingContainer: { flexDirection: 'row', alignItems: 'flex-end', flexWrap: 'wrap' },
   typingCursor: { width: 2, height: 18, marginLeft: 3, opacity: 1 },
@@ -1510,9 +1586,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     paddingTop: 8,
   },
-  inputWrapper: { flexDirection: 'row', alignItems: 'center', borderRadius: 22, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1 },
-  input: { flex: 1, fontSize: 16, maxHeight: 120, paddingVertical: Platform.OS === 'android' ? 10 : 8, textAlignVertical: 'top' },
-  sendButton: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center', marginLeft: 8 },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 22,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+  },
+  input: {
+    flex: 1,
+    fontSize: 16,
+    maxHeight: 120,
+    paddingVertical: Platform.OS === 'android' ? 10 : 8,
+    textAlignVertical: 'top',
+  },
+  sendButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
 
   // 사이드바
   sidebarOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', flexDirection: 'row' },
@@ -1521,8 +1617,24 @@ const styles = StyleSheet.create({
   sidebarContent: { flex: 1, paddingTop: 0 },
   sidebarScrollView: { flex: 1 },
   sidebarScrollContent: { flexGrow: 1 },
-  sidebarTopHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 10, borderBottomWidth: 1 },
-  searchInputContainer: { flexDirection: 'row', alignItems: 'center', borderRadius: 18, paddingHorizontal: 12, paddingVertical: 6, flex: 1, marginRight: 10, borderWidth: 1 },
+  sidebarTopHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+  },
+  searchInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    flex: 1,
+    marginRight: 10,
+    borderWidth: 1,
+  },
   searchInput: { flex: 1, fontSize: 14, paddingVertical: 4 },
   searchIcon: { marginRight: 6 },
   closeButton: { width: 30, height: 30, justifyContent: 'center', alignItems: 'center' },
@@ -1533,17 +1645,36 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 14, fontWeight: '600' },
 
   sidebarBottom: { paddingHorizontal: 20, paddingVertical: 20, borderTopWidth: 1 },
-  logoutButton: { justifyContent: 'center', alignItems: 'center', paddingVertical: 13, paddingHorizontal: 13, borderRadius: 10, borderWidth: 1 },
+  logoutButton: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 13,
+    paddingHorizontal: 13,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
   logoutText: { fontSize: 16, color: '#fff', fontWeight: '700' },
 
   // 모달 공통
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
   modalHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   modalTitle: { fontSize: 20, fontWeight: '800' },
   modalSubtitle: { fontSize: 14 },
 
   // 공용 버튼
-  modalCancelButton: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8, borderWidth: 1, alignItems: 'center' },
+  modalCancelButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
   modalCancelText: { fontSize: 16, fontWeight: '600' },
 
   // 로그아웃 모달/버튼
@@ -1561,12 +1692,19 @@ const styles = StyleSheet.create({
   logoutModalTitle: { fontSize: 20, fontWeight: '800', marginLeft: 12 },
   logoutModalMessage: { fontSize: 16, textAlign: 'center', lineHeight: 24, marginVertical: 18 },
   logoutModalButtons: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginTop: 10 },
-  logoutCancelButton: { flex: 1, padding: 14, borderRadius: 8, marginRight: 8, alignItems: 'center', borderWidth: 1 },
+  logoutCancelButton: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 8,
+    marginRight: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+  },
   logoutCancelText: { fontSize: 16, fontWeight: '700' },
   logoutConfirmButton: { flex: 1, padding: 14, borderRadius: 8, marginLeft: 8, alignItems: 'center' },
   logoutConfirmText: { fontSize: 16, color: '#fff', fontWeight: '800' },
 
-  // 커스텀 App Alert
+  // 커스텀 App Alert (삭제 UI)
   appAlert: {
     borderRadius: 16,
     padding: 20,
@@ -1577,9 +1715,21 @@ const styles = StyleSheet.create({
   appAlertTitle: { fontSize: 18, fontWeight: '800', marginBottom: 8, textAlign: 'center' },
   appAlertMessage: { fontSize: 14, lineHeight: 20, textAlign: 'center' },
   appAlertButtons: { flexDirection: 'row', marginTop: 14 },
-  appAlertButton: { flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center', borderWidth: 1 },
+  appAlertButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+  },
   appAlertButtonText: { fontSize: 15, fontWeight: '700' },
-  appAlertButtonPrimary: { flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center', marginLeft: 8 },
+  appAlertButtonPrimary: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginLeft: 8,
+  },
   appAlertButtonPrimaryText: { fontSize: 15, fontWeight: '800', color: '#fff' },
 
   // 다운로드 모달
@@ -1608,7 +1758,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
 
-  // 🔽 채팅 옵션 모달 스타일
+  // 🔽 (이전) 채팅 옵션 모달 스타일 - 남겨둠(필요시 재사용)
   optionsModal: {
     borderRadius: 16,
     padding: 20,
