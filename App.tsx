@@ -12,7 +12,6 @@ import {
 } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
 // 컴포넌트 imports
 import PrivacyPolicyScreen from './components/PrivacyPolicyScreen';
 import SplashScreen from './components/SplashScreen';
@@ -24,7 +23,6 @@ import ChatBotScreen from './components/ChatBotScreen';
 import SettingsScreen from './components/SettingsScreen';
 import CustomAlert from './components/CustomAlert';
 import PhotoGalleryScreen from './components/PhotoGalleryScreen';
-
 type ScreenName =
   | 'splash'
   | 'login'
@@ -35,7 +33,6 @@ type ScreenName =
   | 'settings'
   | 'privacyPolicy'
   | 'photoGallery';
-
 // 앱 전역 상태 관리용 Context
 interface AppContextType {
   showCustomAlert: (
@@ -43,7 +40,7 @@ interface AppContextType {
     message: string,
     buttons?: Array<{ text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive' }>
   ) => void;
-  navigateToScreen: (nextScreen: ScreenName) => void;
+  navigateToScreen: (nextScreen: ScreenName) => void;  // ← 여기!
   goBackToLogin: () => void;
 }
 const AppContext = React.createContext<AppContextType | null>(null);
@@ -59,6 +56,7 @@ const App = () => {
   const [isLoggedIn, setLoggedIn] = useState(false);
   const [currentScreen, setCurrentScreen] = useState<ScreenName>('splash');
 
+
   // 전역 상태
   const [showExitModal, setShowExitModal] = React.useState(false);
   const [chatTheme, setChatTheme] = React.useState(false);
@@ -67,7 +65,7 @@ const App = () => {
   // 애니메이션
   const fadeAnimation = React.useRef(new Animated.Value(1)).current;
   const [isAnimating, setIsAnimating] = React.useState(false);
-
+  
   // 로그인 관련 상태
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
@@ -126,27 +124,24 @@ const App = () => {
     title: string,
     message: string,
     buttons: Array<{ text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive' }> = [{ text: '확인' }]
-  ) => {
-    // ✅ 로그인 성공 알림은 무시 (LoginScreen 내부에서 띄우더라도 여기서 막음)
-    const t = (title || '').toLowerCase();
-    const m = (message || '').toLowerCase();
-    if (t.includes('로그인 성공') || m.includes('로그인 성공') || t.includes('login success') || m.includes('login success')) {
-      return; // 알림 표시하지 않음
-    }
-    setCustomAlert({ visible: true, title, message, buttons });
-  };
+  ) => setCustomAlert({ visible: true, title, message, buttons });
 
   // 화면 전환(페이드)
-  const navigateToScreen = (nextScreen: ScreenName) => {
+    const navigateToScreen = (nextScreen: ScreenName) => {
+    // isAnimating 상태와 관계없이 강제로 화면 전환 (버튼 클릭 시 화면이 안 넘어가는 현상 방지)
+    console.log('navigateToScreen 호출:', nextScreen);
     setIsAnimating(true);
     Animated.timing(fadeAnimation, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
       setCurrentScreen(nextScreen);
+      console.log('currentScreen 변경됨:', nextScreen);
       Animated.timing(fadeAnimation, { toValue: 1, duration: 200, useNativeDriver: true }).start(() => {
         setIsAnimating(false);
       });
     });
-    setTimeout(() => setIsAnimating(false), 1000);
-  };
+    setTimeout(() => {
+      setIsAnimating(false);
+    }, 1000);
+    };
 
   // 로그인으로 돌아가기(상태 초기화)
   const goBackToLogin = () => {
@@ -191,7 +186,7 @@ const App = () => {
   React.useEffect(() => {
     let t: NodeJS.Timeout | undefined;
     if (timerActive && verificationTimer > 0) {
-      t = setInterval(() => setVerificationTimer((prev) => prev - 1), 1000);
+      t = setInterval(() => setVerificationTimer(prev => prev - 1), 1000);
     } else if (verificationTimer === 0) {
       setTimerActive(false);
     }
@@ -201,7 +196,7 @@ const App = () => {
   React.useEffect(() => {
     let t: NodeJS.Timeout | undefined;
     if (resetTimerActive && resetVerificationTimer > 0) {
-      t = setInterval(() => setResetVerificationTimer((prev) => prev - 1), 1000);
+      t = setInterval(() => setResetVerificationTimer(prev => prev - 1), 1000);
     } else if (resetVerificationTimer === 0) {
       setResetTimerActive(false);
     }
@@ -261,7 +256,7 @@ const App = () => {
             loginPasswordError={loginPasswordError}
             setLoginPasswordError={setLoginPasswordError}
             fadeAnimation={fadeAnimation}
-            // 로그인 성공 시: 로그인 상태 true 후 챗 화면으로 이동 (알림 없음)
+            // 로그인 성공 시: 로그인 상태를 true로 설정하고 챗 화면으로 이동
             onLogin={() => {
               setLoggedIn(true);
               navigateToScreen('chat');
@@ -416,27 +411,35 @@ const App = () => {
   };
 
   // -------- refresh 토큰으로 자동 로그인 처리 --------
-  useEffect(() => {
-    const initialize = async () => {
-      await new Promise((resolve) => setTimeout(resolve, 1500)); // 스플래시 1.5초
-      try {
-        const token = await AsyncStorage.getItem('accessToken');
-        setLoading(false);
-        if (token) {
-          setLoggedIn(true);
-          setCurrentScreen('chat');
-        } else {
+  // 스플래시 화면 1.5초 후 자동 종료 (API/토큰 없이)
+    useEffect(() => {
+      const initialize = async () => {
+        // 스플래시를 1.5초 동안 표시
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        try {
+          // AsyncStorage에서 토큰 조회
+          const token = await AsyncStorage.getItem('accessToken');
+          // 스플래시 종료
+          setLoading(false);
+          if (token) {
+            // 토큰이 있으면 로그인한 것으로 간주하고 챗봇 화면으로 이동
+            setLoggedIn(true);
+            setCurrentScreen('chat');
+          } else {
+            // 토큰이 없으면 로그인 화면으로 이동
+            setLoggedIn(false);
+            setCurrentScreen('login');
+          }
+        } catch (e) {
+          // 오류 발생 시 로그인 화면으로 이동
+          setLoading(false);
           setLoggedIn(false);
           setCurrentScreen('login');
         }
-      } catch {
-        setLoading(false);
-        setLoggedIn(false);
-        setCurrentScreen('login');
-      }
-    };
-    initialize();
-  }, []);
+      };
+      initialize();
+    }, []);
 
   // 초기 로딩 중일 때 스플래시 화면 표시
   if (isLoading) {
@@ -446,7 +449,7 @@ const App = () => {
   // 앱 렌더링
   return (
     <SafeAreaProvider>
-      <AppContext.Provider value={{ showCustomAlert, navigateToScreen, goBackToLogin }}>
+      <AppContext.Provider value={contextValue}>
         <View style={styles.container}>
           <StatusBar barStyle="light-content" backgroundColor="#0080ff" />
           {renderCurrentScreen()}

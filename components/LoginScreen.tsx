@@ -125,8 +125,6 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
         await AsyncStorage.removeItem('accessToken');
         await AsyncStorage.removeItem('refreshToken');
       }
-
-      showCustomAlert('로그인 성공', 'AI 챗 화면으로 이동합니다.');
       onLogin();
     } catch (error: any) {
       if (axios.isAxiosError(error) && error.response) {

@@ -1,102 +1,221 @@
 // src/api.ts
-import axios from 'axios';
+import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+
+/** ====== 서버 기본 주소 ====== */
 export const API_BASE_URL = 'http://15.164.104.195:8000';
-export const getUserProfile = async () => {
-  return api.get('/users/me');
-};
-// axios 인스턴스 생성
+
+/** ====== Axios 인스턴스 ====== */
 const api = axios.create({
   baseURL: API_BASE_URL,
+  timeout: 20000,
 });
 
-// 요청 인터셉터: 매 요청마다 저장된 accessToken을 헤더에 넣어줍니다.
-api.interceptors.request.use(async (config) => {
-  const token = await AsyncStorage.getItem('accessToken');
+/** ====== 토큰 유틸 ====== */
+const ACCESS_TOKEN_KEY = 'accessToken';
+const REFRESH_TOKEN_KEY = 'refreshToken';
 
-  if (token) {
-    // headers가 undefined면 빈 객체로 초기화
-    const headers = config.headers ?? {};
-
-    // Authorization 헤더 설정 (타입 캐스팅으로 타입 오류 방지)
-    (headers as any).Authorization = `Bearer ${token}`;
-
-    // config.headers에 다시 할당
-    config.headers = headers;
+export async function setTokens(accessToken: string, refreshToken?: string) {
+  await AsyncStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
+  if (typeof refreshToken === 'string') {
+    await AsyncStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
   }
+}
 
+export async function clearTokens() {
+  await AsyncStorage.removeItem(ACCESS_TOKEN_KEY);
+  await AsyncStorage.removeItem(REFRESH_TOKEN_KEY);
+}
+
+export async function getAccessToken() {
+  return AsyncStorage.getItem(ACCESS_TOKEN_KEY);
+}
+
+export async function getRefreshToken() {
+  return AsyncStorage.getItem(REFRESH_TOKEN_KEY);
+}
+
+/** ====== 요청 인터셉터: 토큰 자동 첨부 ====== */
+api.interceptors.request.use(async (config) => {
+  const token = await getAccessToken();
+  if (token) {
+    // headers가 undefined일 수 있으므로 안전하게 처리
+    config.headers = config.headers ?? {};
+    (config.headers as any).Authorization = `Bearer ${token}`;
+  }
   return config;
 });
-// 응답 인터셉터: 401 오류(토큰 만료) 시 refresh 토큰으로 새 access 토큰을 발급받습니다.
+
+/** ====== 응답 인터셉터: 401일 때 자동 토큰 재발급 ====== */
+let isRefreshing = false;
+let refreshWaitQueue: Array<(token: string) => void> = [];
+
+function subscribeTokenRefreshed(cb: (token: string) => void) {
+  refreshWaitQueue.push(cb);
+}
+
+function publishTokenRefreshed(token: string) {
+  refreshWaitQueue.forEach((cb) => cb(token));
+  refreshWaitQueue = [];
+}
+
 api.interceptors.response.use(
   (response) => response,
-  async (error) => {
-    const originalRequest = error.config;
-    if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true;
-      const refreshToken = await AsyncStorage.getItem('refreshToken');
-      if (refreshToken) {
-        try {
-          // refresh 토큰으로 새 access 토큰 요청
-          // ✅ 백엔드에서는 /auth/refresh 엔드포인트를 사용합니다.
-          const res = await axios.post(`${API_BASE_URL}/auth/refresh`, { refresh_token: refreshToken });
-          const newAccessToken = res.data.access_token;
-          // 새 access 토큰 저장
-          await AsyncStorage.setItem('accessToken', newAccessToken);
-          // 헤더에 새 토큰 설정 후 기존 요청 재시도
-          originalRequest.headers = originalRequest.headers || {};
-          originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-          return api(originalRequest);
-        } catch (refreshError) {
-          // refresh 토큰도 만료된 경우, 저장된 토큰 삭제
-          await AsyncStorage.removeItem('accessToken');
-          await AsyncStorage.removeItem('refreshToken');
-          return Promise.reject(refreshError);
-        }
-      }
+  async (error: AxiosError) => {
+    const { response, config } = error;
+    const originalRequest = (config || {}) as AxiosRequestConfig & { _retry?: boolean };
+
+    // 401이 아니면 그대로 종료
+    if (response?.status !== 401) {
+      return Promise.reject(error);
     }
-    return Promise.reject(error);
+
+    // 로그인/리프레시 요청 자체에서 401이면 더 시도하지 않음(루프 방지)
+    const reqUrl = (originalRequest.url || '').toString();
+    if (reqUrl.includes('/auth/login') || reqUrl.includes('/auth/refresh')) {
+      await clearTokens();
+      return Promise.reject(error);
+    }
+
+    // 이미 재시도한 요청이면 중단(루프 방지)
+    if (originalRequest._retry) {
+      await clearTokens();
+      return Promise.reject(error);
+    }
+
+    originalRequest._retry = true;
+
+    // 동시에 여러 401이 발생할 때, 첫 번째 호출만 refresh를 수행하고 나머지는 큐에 대기
+    const refreshToken = await getRefreshToken();
+    if (!refreshToken) {
+      await clearTokens();
+      return Promise.reject(error);
+    }
+
+    if (isRefreshing) {
+      // 리프레시 끝날 때까지 대기했다가 새 토큰으로 재시도
+      return new Promise((resolve) => {
+        subscribeTokenRefreshed((newToken) => {
+          originalRequest.headers = originalRequest.headers ?? {};
+          (originalRequest.headers as any).Authorization = `Bearer ${newToken}`;
+          resolve(api(originalRequest));
+        });
+      });
+    }
+
+    // 실제 토큰 재발급
+    isRefreshing = true;
+    try {
+      const res = await axios.post(
+        `${API_BASE_URL}/auth/refresh`,
+        { refresh_token: refreshToken },
+        { timeout: 15000 }
+      );
+
+      const newAccessToken = (res.data as any)?.access_token;
+      const newRefreshToken = (res.data as any)?.refresh_token;
+
+      if (!newAccessToken) {
+        throw new Error('No access_token in refresh response');
+      }
+
+      await setTokens(newAccessToken, newRefreshToken);
+
+      // 대기 중인 요청들 재시도
+      publishTokenRefreshed(newAccessToken);
+
+      // 현재 요청 재시도
+      originalRequest.headers = originalRequest.headers ?? {};
+      (originalRequest.headers as any).Authorization = `Bearer ${newAccessToken}`;
+      return api(originalRequest);
+    } catch (e) {
+      await clearTokens();
+      return Promise.reject(e);
+    } finally {
+      isRefreshing = false;
+    }
   }
 );
 
-// ========== API 함수들 ==========
+/** =========================
+ *  인증/계정 관련 API
+ *  ======================= */
 
-// 사용자 설정 업데이트
+/** 로그인: 폼 전송 (username=email, password=비번) */
+export async function login(email: string, password: string) {
+  const params = new URLSearchParams();
+  params.append('username', email);
+  params.append('password', password);
+
+  const res = await axios.post(`${API_BASE_URL}/auth/login`, params, {
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    timeout: 20000,
+  });
+
+  const data = res.data as any;
+  const access = data?.access_token;
+  const refresh = data?.refresh_token;
+
+  if (access) {
+    await setTokens(access, refresh);
+  }
+  return data;
+}
+
+/** 로그아웃(클라이언트 측 토큰 삭제) */
+export async function logout() {
+  await clearTokens();
+}
+
+/** 내 프로필 조회 */
+export const getUserProfile = async () => {
+  return api.get('/users/me');
+};
+
+/** 사용자 설정 업데이트 (chat_theme / dark_mode) */
 export const updateUserPrefs = async (prefs: { chat_theme?: boolean; dark_mode?: boolean }) => {
   return api.patch('/users/me', prefs);
 };
-// 계정 삭제
+
+/** 계정 삭제 */
 export const deleteUserAccount = async () => {
   return api.delete('/users/me');
 };
 
-// 새 채팅(쓰레드) 생성
+/** 모델 서명 URL (다운로드용) */
+export const getModelSignedUrl = async () => {
+  return api.get('/model/url');
+};
+
+/** =========================
+ *  스레드/메시지 관련 API
+ *  ======================= */
+
+/** 새 채팅(스레드) 생성 */
 export const createThread = async (title: string) => {
-  // /threads/threads가 맞습니다 (threads 라우터 prefix가 /threads, 내부 경로도 /threads)
+  // threads 라우터: prefix=/threads, 내부 경로도 /threads
   return api.post('/threads/threads', { thread_title: title });
 };
 
-// 쓰레드 목록 조회
+/** 스레드 목록 조회 */
 export const getThreads = async () => {
   return api.get('/threads/threads');
 };
 
-// 특정 쓰레드 메시지 조회
+/** 특정 스레드 메시지 조회 */
 export const getMessages = async (threadId: number) => {
-  // 메시지 라우터는 prefix="/threads"로 정의되어 있으므로 중첩되지 않습니다.
-  // 따라서 /threads/{thread_id}/messages 가 올바른 경로입니다.
+  // 메시지 라우터는 prefix="/threads"
   return api.get(`/threads/${threadId}/messages`);
 };
 
-// 메시지 전송
+/** 메시지 전송 */
 export const sendMessage = async (
   threadId: number,
   content: string,
   senderType: 'user' | 'assistant',
 ) => {
-  // 메시지 생성 시에는 client_message_id가 필수입니다(멱등성 보장을 위해).
-  // 간단히 현재 시간과 난수로 고유 ID를 생성합니다.
+  // 멱등성 위한 client_message_id
   const clientMessageId = `${Date.now()}-${Math.random()}`;
 
   return api.post(`/threads/${threadId}/messages`, {
@@ -107,12 +226,14 @@ export const sendMessage = async (
   });
 };
 
-// 쓰레드 제목 수정
+/** 스레드 제목 수정 */
 export const updateThread = async (threadId: number, newTitle: string) => {
   return api.patch(`/threads/threads/${threadId}`, { thread_title: newTitle });
 };
 
-// 쓰레드 삭제
+/** 스레드 삭제 */
 export const deleteThread = async (threadId: number) => {
   return api.delete(`/threads/threads/${threadId}`);
 };
+
+export default api;
